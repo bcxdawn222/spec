@@ -1,0 +1,98 @@
+---
+description: SDD spec 流程规则。仅在用户显式调用 /spec:x 命令或明示"先写方案/出 proposal/先设计"时激活。包含 HARD GATE 固定输出块、反作弊、Stuck 保护、反讨好协议。
+globs: ["**/*"]
+alwaysApply: true
+---
+
+# SDD 流程核心规则（Cursor 移植版，源自 kamioj/spec-workflow）
+
+## 激活边界
+- 仅用户显式激活：`/spec:x` 命令或"先写方案/出个 proposal/先设计"等措辞。
+- 模型绝不自行激活。大任务最多一行建议；用户不回应 = 不激活，直接干活。
+- 小改动（<30 行/单文件/typo/样式）永不触发。
+
+## 流程总览
+
+research（调研+标 TBD）→ ask（消解 TBD，workflow 模式自动分诊不打断）→ design（可选，跨栈必做）
+→ propose（写方案 + critique 自审）→ **HARD GATE（触点1，等用户审批）** → apply（实施）
+→ verify（独立 spec-verifier 验收）→ **验收（触点2，用户确认）** → archive（归档）。
+
+**HARD GATE 后、用户明确回复前，禁止写任何项目源码。**
+
+## HARD GATE 固定输出块（propose/revise 完成后必须原样输出）
+
+```
+<HARD-GATE>
+=== Proposal ready ===
+Path: spec/changes/<name>/proposal.md
+(若生成了 tasks.md → 声明触发条件 + 拆分方式，用户可在此否决)
+
+Escalated decisions — 置顶展示，不可逆决策（数据迁移/schema/公共 API/新依赖/破坏性操作/产品语义）：
+  E1. <决策> | basis: <证据或默认值> | if wrong: <影响范围 + 回滚路径>
+
+Changes — 面向决策者的解释层，每个关键决策一段 Problem/After/Cost 镜像（≤2 行各）：
+
+  1. <一句话决策>
+     Problem: when <谁在什么场景>, because <今天缺什么>, <具体坏结果>.
+     After:   when <同一动作>, because <本改动加了什么>, it <机制>, so <坏结果不再发生>.
+     Cost:    <代价 — 依赖/延迟/限制/返工>
+
+Decided without asking: <auto 消解的 TBD，一行一个；无则 none — 必填行>
+Unresolved critique: <未被反驳的 critique 发现，一行一个；无则 none>
+Not in this change: <批准不覆盖的范围>
+
+Next:
+  ✅ Looks good → 运行 /spec:apply 开始实施（apply 自动追加 APPROVED 标记）
+  🔧 改某段 → /spec:revise [why|what|how|risk]
+  💭 讨论方向 → /spec:chat
+  🔄 重新调研 → /spec:research "<新方向>"
+</HARD-GATE>
+```
+
+用户的 gate 回复是**评估**不是命令清单：逐项 adopt / refute（带证据）/ partial，一轮回完；用户坚持的项照做并记入账本为 user-override。全盘吸收不检验 = 讨好，禁止。
+
+## 反作弊（任何阶段生效）
+
+1. 没跑过的不算成功——成功声明带证据（命令+退出码/关键输出）
+2. bypass 必须明说："bypass，根因未解决"
+3. 硬编码必须注释 + tasks.md 注明"仅适用于本案例"
+4. 自报成功 ≠ 验证，关键命令独立重跑（spec-verifier 铁律）
+5. 前提错误 → 停止报告"Task infeasible"，不硬做
+
+## Stuck 保护
+
+同一方向 3 次连续失败 → 停。每次尝试 = 新假设+改动+验证；重跑/typo/调日志不算。
+第 2 次起必须说明上次失败根因（盲重试不算）。
+
+```
+=== Stuck Self-Check ===
+Symptom: <一行>
+Three hypotheses tried:
+  1. <假设> → <结果>
+  2. <假设> → <结果>
+  3. <假设> → <结果>
+Inferred root cause: <推断或 unknown>
+Suggested new direction: <建议或 awaiting user guidance>
+```
+
+## 产物职责矩阵（防文档膨胀）
+
+| 产物 | 只写 | 不写（归到） |
+|---|---|---|
+| research.md | 外部信息/约束/TBD/Decided 结论 | 架构→design，文件清单→proposal What |
+| design.md | 架构图/接口契约/数据模型/争议决策深论 | 动机→proposal Why，风险→proposal Risk |
+| proposal.md | Why/What(+verify:)/How/风险 | 深度论证→design |
+| tasks.md | 协作清单 | 方案重述→指向 proposal |
+| verify.md | 验证账本（V-N 编号/严重级/证据） | 修复细节→代码 |
+| retrospect.md | 归档审计（偏差/证据/遗留） | 方案重述→指向 proposal |
+
+## 硬门（sdd.py）
+
+- `/spec:propose` 前：`python scripts/sdd.py gate`（research 存在 + [TBD] 清空）
+- `/spec:apply` 前：`python scripts/sdd.py apply-check`（proposal 四段 + 单一 active change）
+- `/spec:archive` 前：`python scripts/sdd.py archive-check`（APPROVED + verify 账本 + tasks 勾选）
+- 退出码 2 = 拦截，处理报错后重试，不强制绕过。归档可用 force/abandoned 显式放行（retrospect.md 记原因）。
+
+## 语言
+
+- 正文用用户语言；段落标题永远英文原形（## Why 等），不得翻译。

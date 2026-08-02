@@ -1,373 +1,53 @@
-<div align="center">
+# spec（二开仓库）
 
-# spec-workflow
+基于 [kamioj/spec-workflow](https://github.com/kamioj/spec-workflow)（MIT）的 Spec-Driven Development 工作流，二开基线仓库。
 
-**Spec-driven development plugin for Claude Code**
+## 仓库结构
 
-Large changes, kept controllable and reversible. The pipeline — research → clarify → propose → **HARD GATE** → implement → verify → archive — is re-entrant at every step, enforced by hooks, and runs its agents in parallel.
+```
+/                         ← 上游 kamioj/spec-workflow 原版内容（v0.5.x，未改动基线）
+├── .claude-plugin/       ← Claude Code 插件（/spec:x 命令）
+├── codex/                ← OpenAI Codex CLI 插件（$spec-x skills + hooks）
+├── core/                 ← 单一事实源（generate.mjs 生成双端产物，改这里）
+├── commands/ agents/ skills/ hooks/ rules/ tools/
+└── README_cn.md          ← 原版中文说明（v0.5.x 快照）
 
-[![Version](https://img.shields.io/badge/version-0.4.2-blue.svg)](https://github.com/kamioj/spec-workflow)
-[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](https://github.com/kamioj/spec-workflow)
-[![Claude Code](https://img.shields.io/badge/Claude%20Code-v2.1+-purple.svg)](https://docs.claude.com/en/docs/claude-code)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+sdd-cursor/               ← 二开产物 #1：Cursor 移植版（本仓库新增）
+├── .cursor/commands/     ← 12 个 /spec:x 命令（Cursor slash commands）
+├── .cursor/agents/       ← spec-dev / spec-verifier 子代理（独立验收）
+├── .cursor/rules/        ← HARD GATE + 反作弊 + Stuck 规则
+├── scripts/sdd.py        ← 硬门 CLI（gate / apply-check / archive-check，退出码 2 拦截）
+├── templates/            ← research / proposal / tasks / verify 模板
+└── references/           ← 编码宪章 + 栈规范（含 uni-app 小程序规范）
+```
 
-**English** | [中文](README_cn.md)
+## 两套基线的定位
 
-</div>
+| 基线 | 宿主 | 特点 |
+|---|---|---|
+| 上游原版（根目录） | Claude Code / Codex CLI | 完整插件形态，shell hook 硬门，双端生成器 |
+| sdd-cursor/ | Cursor IDE | 命令 + 子代理 + Python 硬门，无 hook 事件用脚本兜底 |
 
----
+## 二开指南
 
-## Why
+- **改上游逻辑**：只改 `core/`，跑 `node tools/generate.mjs` 重新生成两端
+- **改 Cursor 版**：直接改 `sdd-cursor/`，硬门逻辑在 `sdd-cursor/scripts/sdd.py`
+- **新增能力**（如小程序/SaaS 专属规范）：`sdd-cursor/references/` 按栈添加，agent 派单时按栈加载
 
-Two paradigms already dominate AI-assisted spec-driven development:
+## 快速开始
 
-- **Fast lane** — start coding right away and let hooks catch the mistakes (hookify, or a stripped-down superpowers brainstorm).
-- **Heavy lane** — spec everything up front, but down a rigid track (OpenSpec's 4 commands, superpowers brainstorm's 9 steps).
-
-**spec-workflow takes a third path.** It keeps the discipline of thinking before acting, but breaks the process into 12 independent slash commands — each stage re-entrant, interruptible, and re-runnable on its own. Three hard gate hooks make sure the workflow stops where it has to; a Stop-event reminder makes sure implementation ends with a verification; a Stop-event driver turns `/spec:loop`'s autonomous rounds into a hard mechanism.
-
-### Comparison
-
-| Dimension | spec-workflow | OpenSpec | superpowers |
-|---|---|---|---|
-| Stage gating | explicit HARD GATE + hook enforcement | loose, advisory warnings | rigid 9-step track |
-| Open questions `[TBD]` | allowed, but a hook forces them closed | Open Questions can linger | banned — resolve on the spot |
-| Command granularity | 12 independent commands | 4 commands, all-in-one | one skill-based flow |
-| Mid-flow re-entry | call any stage on its own | `/opsx:continue` to advance | start over |
-| Anti-cheating | two layers (command + agent) + opt-in flags | none | implicit |
-
-Built for one person making large changes, with guardrails — stricter than OpenSpec, looser than superpowers.
-
----
-
-## Quick Start
-
-### Install
-
-```pwsh
-# Configure a GitHub token (required for a private repo)
-$env:GITHUB_TOKEN = "ghp_xxxxxxxxxxxx"
-
-# Register the marketplace and install the plugin
+```powershell
+# Claude Code
 claude plugin marketplace add kamioj/spec-workflow
-claude plugin install spec@spec-workflow
-```
+# 或本地: claude plugin install ./
 
-**Using OpenAI Codex CLI instead?** The same workflow ships as a Codex plugin from this
-repo — same gates, same artifacts, `$spec-*` skills instead of `/spec:*` commands:
-
-```sh
+# Codex CLI
 codex plugin marketplace add kamioj/spec-workflow
-codex plugin add spec@spec-workflow
+
+# Cursor（本仓库二开版）
+cd 你的项目
+.\sdd-cursor\install.ps1
+# 重启 Cursor，/spec:workflow "需求描述"
 ```
 
-Full Codex install steps (agent bootstrap via `$spec-setup`, one-time hook trust) and the
-known differences live in [codex/README.md](codex/README.md).
-
-### Optional dependencies (not auto-installed — the plugin degrades gracefully without them)
-
-A Claude Code plugin only ships files (commands / hooks / agents / rules); it never installs software on your machine. Two external tools unlock extra layers, both opt-in:
-
-| Tool | Powers | Install | Without it |
-|---|---|---|---|
-| [ast-grep](https://github.com/ast-grep/ast-grep) | charter-audit machine pass over `rules/dirty-data/` (AST-level detection of swallowed exceptions / default-return fallbacks) | `scoop install main/ast-grep` or `npm i -g @ast-grep/cli` | the verifier falls back to manual pattern review and declares `not run: ast-grep not installed` in Evidence |
-| Codex CLI | the `--codex` heterogeneous peer review in `/spec:propose` and `/spec:verify` | `npm i -g @openai/codex`, then run `codex` once — the first run walks you through login | `--codex` flags unavailable; the default independent review is unaffected |
-
-### Try it
-
-Once claude is running:
-
-```
-/spec:status                          # should print "no active SDD change"
-/spec:research "Caffeine vs Redis"    # kick off a research run
-```
-
-Within a few minutes, `research.md` lands in `spec/changes/caffeine-vs-redis/`.
-
-From there, walk the flow: `/spec:ask` settles the open `[TBD]` decisions with you → `/spec:propose` writes the proposal and **stops at the HARD GATE for your approval** → `/spec:apply` implements → `/spec:verify` audits independently → say "archive" when you're done. Lost? `/spec:status` tells you exactly where you are and what to run next.
-
-Prefer to delegate the whole thing? `/spec:workflow <task>` runs end-to-end and stops at exactly **two** points: the HARD GATE (review the proposal — decisions the agent made for you are disclosed, irreversible ones pinned on top) and acceptance (say "archive"). No mid-flight questions: open decisions are triaged internally, an adversarial critique panel attacks the proposal before it reaches you, and your feedback at either touchpoint drives unlimited improvement rounds — each reply answered point by point (adopt / refute with reasons / partial), never swallowed whole.
-
----
-
-## Features
-
-### 12 independent slash commands
-
-| Category | Command | What it does |
-|---|---|---|
-| **Entry** | `/spec:workflow <task>` | run the whole flow end-to-end, fully delegated — decisions triaged internally, stops only at the HARD GATE + acceptance |
-|  | `/spec:loop <goal>` | goal-driven **autonomous round loop**: approve the goal + acceptance checklist + round budget once, then it researches / implements / verifies / retrospects round after round — hook-driven, ledger-remembered — until acceptance or a fuse |
-|  | `/spec:status` | report where the current change stands |
-| **Gather** | `/spec:research <direction>` | survey industry practice and flag open questions as `[TBD]` |
-|  | `/spec:ask` | work through the `[TBD]` questions with you |
-|  | `/spec:chat` | discussion mode — never touches a file |
-| **Design & propose** | `/spec:design` | technical design, when you need it |
-|  | `/spec:propose [--codex]` | write the proposal + HARD GATE; `--codex` lets codex poke holes in it |
-|  | `/spec:revise [why\|what\|how\|risk]` | edit a single proposal section |
-| **Execute & verify** | `/spec:apply [flags]` | dispatch agents to implement |
-|  | `/spec:verify [--codex] [--fix]` | independent fresh-context verifier review (three dimensions + charter audit); `--codex` adds a second opinion from codex, `--fix` lets codex edit directly |
-| **Wrap up** | `/spec:archive` | archive the current change |
-
-### 5 hooks — 3 hard gates + 1 reminder + 1 loop driver
-
-On the `UserPromptSubmit` event, **shell scripts block** any command that breaks the flow; on the `Stop` event, a reminder catches implementation ending without verification, and a **driver** turns `/spec:loop`'s "next round" from prompt discipline into a hard mechanism:
-
-| Hook | Fires on | What it does |
-|---|---|---|
-| `check-tbd.sh` | before `/spec:propose` | blocks if research.md still has a `[TBD-N]` |
-| `check-gate.sh` | before `/spec:apply` | blocks if the proposal isn't ready: missing / incomplete proposal.md (four sections), or more than one active change |
-| `check-archive.sh` | before `/spec:archive` | blocks if the change bypassed the flow (unapproved proposal / unchecked tasks / no proposal); override deliberately with `force` or `abandoned` |
-| `check-verify-reminder.sh` | Stop (end of a Claude turn) | nudges Claude to run the closing verification when a turn ends with an approved proposal but no `verify.md` ledger (one nudge per stop, loop-guarded) |
-| `loop-driver.sh` | Stop, when exactly one `running` loop ledger exists | re-injects the next `/spec:loop` round (probe-verified Stop JSON contract) — or releases the stop with a **distinct notice** per ending: acceptance met / round cap / no progress / refusal-to-retrospect / corrupt ledger. All fuse signals are mechanical (checkbox counts, worktree fingerprint) — the model's own "I made progress" is never consulted |
-
-**Soft vs hard constraints.** A prompt that says "you must do X" can be ignored by the model. A hook is a shell script — it can't be: a **0% violation rate**.
-
-**`/spec:loop` vs a bare self-feeding loop** (ralph-style): same drive mechanism, but with an acceptance checklist as the success exit, an **exhaustive independent audit at final acceptance** (rounds stay cheap on self-checks; mid-loop checkmarks are claims the audit unchecks if false — so a dishonest check can never produce a false pass), a cross-round ledger (`loop.md`: rounds + lessons), and layered fuses. **Do not run `/spec:loop` alongside another Stop-driven looper** (e.g. the official ralph-loop plugin) in the same session — two drivers competing for one Stop event have undefined merge semantics.
-
-### 1 development agent (dispatched by scope)
-
-| scope | Responsible for |
-|---|---|
-| `frontend` | UI / routing / components / styling / client-side interaction |
-| `backend` | server-side logic / API / data models / DB migrations / middleware |
-
-`spec-dev` is a single agent; frontend/backend is a dispatch-time scope. In a cross-stack project, the interface contract is pinned down first in `design.md ## Interfaces`, then **two `spec-dev` instances** (one frontend, one backend) **build in parallel** — never one after the other.
-
-### 1 verification agent (fresh context)
-
-`spec-verifier` is dispatched by `/spec:verify` with a **deliberately fresh context** — the conversation that implemented the change never audits itself. Its protocol: no pass without fresh evidence (a dev agent's self-reported success gets re-run, not trusted), evidence-or-drop findings (no quotable code = no finding, ≤3 per dimension), a refutation phase where a defense must cite a gate decision, and an ast-grep machine pass over the shipped `rules/dirty-data/` pack (validated: catches "return default in catch" even behind a log line; never flags a proper throw).
-
-### opt-in enhancement flags
-
-`/spec:apply` runs lean by default. Three flags pull in extra discipline on demand:
-
-| flag | Turns on | Use it when |
-|---|---|---|
-| `design` | anti-AI-slop | marketing pages, portfolios — anywhere visuals matter |
-| `solid` | anti-laziness (no workarounds) | one-off scripts where cutting corners is tempting |
-| `verify` | anti-hallucination (read before you write) | large codebases where guessing is dangerous |
-
-Stack them:
-
-```
-/spec:apply design solid verify    # all three on
-```
-
----
-
-## Workflow
-
-```mermaid
-graph LR
-    A[research]:::cmd -->|has TBD| B[ask]:::cmd
-    B --> A
-    A -->|TBD cleared| D{design needed?}
-    D -->|complex| E[design]:::cmd
-    D -->|simple| F[propose]:::cmd
-    E --> F
-    F -->|HARD GATE| G{user approves?}:::gate
-    G -->|yes| H[apply]:::cmd
-    G -->|no| I[revise]:::cmd
-    I --> G
-    H --> J[verify]:::cmd
-    J -->|pass| K[archive]:::cmd
-    J -->|fail| H
-
-    classDef cmd fill:#e1f5fe,stroke:#01579b,color:#000
-    classDef gate fill:#fff9c4,stroke:#f57f17,color:#000
-```
-
-Every stage stands alone. Jump wherever you need — `/spec:chat` to talk it over, `/spec:revise why` to rework one section, `/spec:research <new direction>` to start the research over.
-
----
-
-## Architecture
-
-### Repo layout
-
-```
-.
-├── .claude-plugin/
-│   ├── marketplace.json           # marketplace manifest (source: "./" — points back at the repo root)
-│   └── plugin.json                # plugin manifest
-├── core/                           # SINGLE SOURCE for all shipped markdown (both plugins)
-├── tools/generate.mjs              # emits commands/ skills/ rules/ agents/ AND codex/skills|agents from core/; --check = drift guard
-├── codex/                          # OpenAI Codex CLI port (same workflow + gates; see codex/README.md)
-├── commands/                       # 12 slash commands — GENERATED from core/, do not hand-edit
-├── hooks/                          # hard constraints (POSIX sh, all platforms) + fixture suite
-│   ├── hooks.json
-│   ├── check-tbd.sh
-│   ├── check-gate.sh
-│   ├── check-archive.sh
-│   ├── check-verify-reminder.sh
-│   └── loop-driver.sh              # Stop-event driver for /spec:loop
-├── agents/
-│   ├── spec-dev.md                 # dispatched by scope (frontend/backend); cross-stack = two in parallel
-│   └── spec-verifier.md            # fresh-context verifier dispatched by /spec:verify
-├── rules/                          # ast-grep rule packs (charter-audit machine pass)
-│   ├── sgconfig.yml
-│   └── dirty-data/                 # swallowed exceptions / default-return fallbacks (java/js/ts)
-├── scripts/
-│   └── codex-exec.ps1              # wrapper for every --codex invocation (timeout / session reuse / Windows workarounds)
-└── skills/core/
-    ├── SKILL.md                    # plugin overview (shared principles)
-    └── references/                 # knowledge base
-        ├── proposal-spec.md        # artifact spec: full format + HARD GATE rules
-        ├── design-spec.md
-        ├── tasks-spec.md
-        ├── agent-principles.md     # opt-in: anti-laziness + anti-hallucination
-        ├── frontend-aesthetics.md  # opt-in: anti-AI-slop
-        ├── code-charter.md         # coding-phase baseline: fail-fast / no silent fallback / no old-logic fallback
-        ├── alibaba-java.md         # 14 language/framework guides
-        ├── bulletproof-react.md
-        ├── vue-style.md vue-patterns.md
-        ├── react-patterns.md
-        ├── ts-conventions.md google-ts-style.md
-        ├── python-conventions.md php-conventions.md
-        ├── flutter-conventions.md
-        ├── js-style.md css-style.md
-        └── uniapp-miniprogram.md
-```
-
-### Runtime artifacts
-
-What the plugin writes into your project when you run it:
-
-```
-<your-project>/spec/
-├── knowledge.md                    # project-level durable facts (cross-change; archive maintains, research reads first)
-├── changes/<change-name>/          # active change workspace
-│   ├── research.md   required      # current research (practices + constraints + open decisions), single file
-│   ├── research/     optional      # discarded-direction drafts for this change (research.md snapshots, no markers/links, revivable)
-│   ├── design.md     optional      # technical design (architecture / interfaces / data model)
-│   ├── proposal.md   required      # the final solution (carries the APPROVED marker)
-│   ├── tasks.md      optional      # multi-executor task list
-│   ├── verify.md     at-verify     # verification ledger: stable finding IDs + round diffing + unfixed-escalation
-│   └── retrospect.md at-archive    # written by /spec:archive: divergence review + evidence + leftovers
-└── archive/<YYYY-MM-DD-name>/      # archived changes
-```
-
----
-
-## Development
-
-After changing plugin content:
-
-```pwsh
-git add . && git commit -m "..."
-git push
-
-claude plugin marketplace update spec-workflow    # sync the cache
-# restart claude — hooks only load on startup
-```
-
-Or skip the push loop while developing and load the source directly:
-
-```pwsh
-claude --plugin-dir .
-```
-
-A copy loaded with `--plugin-dir` **wins over** the marketplace cache, so your edits are testable right away.
-
----
-
-## Documentation
-
-- [skills/core/SKILL.md](skills/core/SKILL.md) — shared principles (HARD GATE / interrogation rules / stuck-detection / anti-cheating)
-- [Official Claude Code plugin docs](https://code.claude.com/docs/en/plugins) — the upstream plugin mechanism
-
----
-
-## Limitations
-
-- **Claude Code gates run everywhere sh runs** (0.4.2+): a single POSIX sh implementation per gate, executed via hooks.json shell form — `sh` on macOS/Linux, **Git Bash on Windows**. Git for Windows is the one Windows prerequisite, and Claude Code's own Bash tool already requires it.
-  - Troubleshooting: non-blocking `UserPromptSubmit hook error` lines mentioning `sh` on Windows mean Git Bash is missing — install [Git for Windows](https://git-scm.com/download/win); the gates fail open (never block your normal flow) until then. Hook errors mentioning `powershell.exe`/`pwsh` mean the session is still running a pre-0.4.2 plugin — run `/reload-plugins` or restart.
-- **Not built yet.** Dedicated sdd-researcher / sdd-reviewer agents, an MCP server.
-
----
-
-## Integration
-
-How this plugin cooperates with the global CLAUDE.md protocol:
-
-- **Language** — proposal and research prose follows your working language; section headers stay in English (## Why / ## What / ## How / ## Risk) so tools can spot them and `revise` can target them by name.
-- **Subagent delegation** — the research stage hands off to the global `@researcher`; the apply stage hands off to the in-plugin `spec-dev` (dispatched by scope).
-- **Concurrency** — independent tasks are dispatched all at once.
-
----
-
-## Verified Decisions
-
-Design calls I worried about, then confirmed safe after digging in (evidence cites Claude Code's official plugin-dev plugin and hookify sources — install those to re-verify):
-
-| Item | Verdict | Evidence |
-|---|---|---|
-| stdin user-input field name | ⚠️ corrected 2026-07-15: the UserPromptSubmit envelope field is **`prompt`** | raw stdin captured by a probe hook in a live session: `{"hook_event_name":"UserPromptSubmit",...,"prompt":"/spec:apply"}`. The earlier `user_prompt` verdict (based on hookify/core/rule_engine.py reading `input_data.get('user_prompt', '')`) described hookify's own permissive reader, not the envelope Claude Code actually sends |
-| how to invoke a plugin agent | ✅ use the agent name directly (`spec-dev`) — no plugin prefix | plugin-dev/skills/agent-development/SKILL.md § Namespacing |
-| required agent frontmatter | ✅ name / description / model / color all present | plugin-dev/skills/agent-development/SKILL.md § Frontmatter Fields |
-| agent model strategy | ✅ `inherit` (takes the parent conversation's model — the official recommendation) | plugin-dev/skills/agent-development/SKILL.md § model |
-
----
-
-## Changelog
-
-- **0.5.3** — activation becomes **user-explicit only**: the core skill never self-activates on task size; size signals (>150 lines / 3+ files / new dependency / architecture choice) warrant at most a one-line suggestion, and silence means proceed without spec. Auto-drifting a small ask into spec ceremony is now the documented top anti-pattern, rated worse than skipping spec on a large change (spec can always be invoked later; time burned on unwanted process cannot)
-- **0.5.2** — loop verification moves to a terminal-audit model (per-round verifier dispatches proved to dominate real-run budgets):
-  - rounds now run on the model's own working checks only (no subagent dispatch mid-round); mid-loop checkmarks are self-claims
-  - the final acceptance becomes the loop's ONLY independent audit, exhaustive and **iterative**: failed items get unchecked and the loop keeps fixing — a dishonest check still can't produce a false pass, it just costs an audit round
-  - "one item per round" reworded to "one coherent increment" (stop shredding small features into ceremony rounds)
-  - the critique panel goes two-speed: manual `/spec:propose` asks you which lenses to run (multi-select over necessity / regression-compat / testability / performance); workflow auto-orchestration dispatches necessity + regression-compat only, the rest on request at the gate (the content-triggered security lens is retired)
-  - the same terminal-audit principle lands in `/spec:apply`: per-node checks are self-run working checks only, the ONE spec-verifier dispatch happens after the last item — the old frontmatter line telling the model to "call /spec:verify close to each node" (a verify-edit-verify-edit churn source) is gone
-  - a god's-eye duplicate sweep kills three more rhythm-verification sinks: workflow step 7 no longer runs a second back-to-back full verifier pass (it consumes apply's closing ledger round; fix-rounds re-verify only the open findings + fix diff), verify fix-rounds are scoped instead of full re-passes, and the research web-survey subagent becomes conditional (external decision spaces only — internal refactors map the status quo and skip the ceremony)
-- **0.5.1** — hardening batch from the same-day max-effort review of 0.5.0 (25 confirmed findings): four integration seams fixed (copy-safe ledger template, resume session re-bind, verifier loop-ledger branch, archive gate loop awareness), driver edge cases (pipeline exit codes, fuse validation, HEAD-aware fingerprint, cap/acceptance boundary, strict twin-consistent heading match), guard hardening (canary joined the sync sweep, reinject-template sync set registered), and a full CLAUDE.md hook-contract rewrite
-- **0.5.0** — `/spec:loop`: goal-driven autonomous rounds, hook-driven:
-  - new command + round ledger (`loop.md`: goal / acceptance checklist / round records / lessons; `.loop-state` is the driver's own state — never edit it): approve the goal once, get verified rounds until acceptance or a fuse
-  - new Stop-event hook `loop-driver` on both hosts: re-injects the next round via the Stop JSON contract (probe-verified on Claude Code 2.1.208 and codex-cli 0.144.3 — raw captures in `hooks/loop-driver.sh` header and `codex/hooks/SCHEMA.md`); fuses are mechanical (round cap / no-progress via checkbox-count + worktree fingerprint / refusal-to-retrospect / corrupt ledger), each with a distinct stop notice
-  - fixture suites grow to 68 (Claude) / 66 (Codex) cases incl. a JSON-escaping canary (ledger text must never leak into driver JSON) and a reminder-invariant pin
-- **0.4.2** — Claude-side gates go cross-platform (macOS / Linux / Windows):
-  - the four PowerShell hooks are **replaced** by single POSIX sh implementations, run via hooks.json shell form (`sh` on unix, Git Bash on Windows — the prerequisite Claude Code's own Bash tool already imposes); the 0.3.3 powershell.exe launcher machinery retires with them
-  - gates now read the project dir from `$CLAUDE_PROJECT_DIR` instead of parsing stdin JSON — non-ASCII project paths (e.g. Chinese) can no longer silently disable a gate
-  - new Claude-side fixture suite (43 cases): scenario-name-synced against the Codex set, plus a unicode-path case, an env-missing fail-open case, and a wrong-contract canary that fails the run if a gate ever "blocks" codex-style (stdout JSON) instead of Claude-style (exit 2 + stderr); green on Git Bash and WSL
-  - doctrine update: plugin hook changes reload via `/reload-plugins` (no full restart; monitors excepted per official docs)
-- **0.4.1** — Codex-side rule-pack path fix: the verifier's ast-grep instruction pointed at the pre-plugin script-install location only, so plugin installs silently lost the machine pass (declared `not run` in a live flight). The generated text now locates `sgconfig.yml` across both install roots (plugin cache + `~/.agents/skills`), verified on sh and pwsh; `codex/AGENTS.md` install paths made install-method-agnostic.
-- **0.4.0** — `/spec:workflow` becomes a true two-touchpoint autopilot:
-  - open decisions are **triaged instead of asked**: evidence-backed ones decided, reversible preferences decided with an `auto` mark, irreversible / product-semantics ones decided provisionally with an `escalated` mark — pinned at the top of the HARD GATE, standing unless you overturn them, echoed again on apply's first line
-  - a **critique panel** attacks every proposal before the gate: a chief *necessity* critic (four-question refutation; silent fallbacks with no real triggering scenario get deletion verdicts, loud invariant guards are judged by blast radius instead of incident history) plus regression-compat and testability lenses, security/performance joining by content; one refutation round, findings land in the ledger as round 0
-  - the gate's Changes blocks switch to a **before/after mirror of the same concrete scenario** (Problem / After / Cost, each ≤2 lines) — readable by non-developers
-  - your feedback becomes a first-class loop: gate and acceptance evaluations get per-item adopt / refute / partial responses, accepted items enter the verification ledger as user-sourced findings, and improvement rounds are unlimited (agent-internal loops stay capped: one refutation round, two auto-fix rounds)
-  - `/spec:status` derives a milestone view (rounds, decisions, touchpoint position) from the artifacts on the spot — nothing new is stored, so it cannot drift; archive-stage retrospect gains an auto-decision calibration entry that feeds `spec/knowledge.md`
-- **0.3.0 – 0.3.3** — dual-host era: the whole workflow ships as an OpenAI Codex CLI plugin from the same repo (`codex/`, `$spec-x` skills, pwsh+sh twin gate hooks with a 40-case fixture suite); both plugin trees are generated from a single `core/` source (`tools/generate.mjs --check` guards drift); Claude-side hooks gain a `powershell.exe`-hosted launcher that probes for pwsh and falls back to in-process 5.1 — Store-installed PowerShell 7 no longer silently disables the gates (0.3.3); ask options lettered to avoid question-numbering collisions (0.3.2); agent dispatch contract fixes (0.3.1)
-- **0.2.1 – 0.2.3** — live-fire hardening from the first real runs and two independent audits:
-  - verifier output enum discipline (0.2.1)
-  - gate hooks trigger on invocation only, never on mention — "what does /spec:apply do?" passes through (0.2.2)
-  - the apply gate now checks prerequisites (proposal exists + four sections + single change) instead of the APPROVED marker, fixing a happy-path deadlock where the hook demanded a marker that only apply itself could append; `--codex` tool permissions repaired (`/spec:propose --codex` was unable to run its script); doc drift swept (0.2.3)
-- **0.2.0**
-  - HARD GATE gains an explanation layer: Changes written for the decision-maker (scenario → how the decision avoids it → cost), with mandatory "Decided without asking" and "Not in this change" disclosures
-  - proposal `## What`: every item carries a `verify:` acceptance check; the section closes with an explicit **Not in this change** boundary that flows into agent dispatch prompts and verify exclusion zones
-  - `/spec:verify` now dispatches an independent fresh-context `spec-verifier` agent (evidence-or-drop findings, refutation phase, optional ast-grep machine pass via `rules/dirty-data/`) and writes a verification ledger `verify.md` (stable finding IDs, round diffing, unfixed findings escalate to fail)
-  - Charter audit: fallback / degrade / compat paths must trace to a gate decision — untraceable ones are findings (critical on data-write paths); the spec-dev summary must disclose every fallback and carry an Evidence block
-  - Two new hooks: `check-archive.sh` (blocks archiving a change that bypassed the flow; override with `force`/`abandoned`) and `check-verify-reminder.sh` (Stop event: a turn can't quietly end with an approved proposal and no verification ledger)
-  - New artifacts: archive-stage `retrospect.md` (divergence review + evidence) and project-level `spec/knowledge.md` (durable cross-change facts; archive maintains, research reads first)
-  - tasks.md generation is declared at the gate (trigger + split), never silently attached
-- **0.1.0** — first release: 11 commands, 2 hooks, 1 agent; migrated from an earlier skill-only form.
-
----
-
-## License
-
-Released under the [MIT License](LICENSE).
-
-**About `references/`:**
-
-- Everything here is sdd's **own content**. The tech-stack guides (`js-style`, `vue-style`, `google-ts-style`, `alibaba-java`, …) distill the key points of the corresponding official specs, with the source noted in each file's frontmatter `source` field — for the full spec, follow the official link; this project does not reproduce the original text.
-- `bulletproof-react.md` is a key-points summary of [bulletproof-react](https://github.com/alan2207/bulletproof-react) (MIT).
-- The principles in `agent-principles.md` and `frontend-aesthetics.md` are original write-ups, synthesized from common industry engineering and design consensus.
-
----
-
-<div align="center">
-
-Built with [Claude Code](https://claude.com/claude-code) · Maintained by [@kamioj](https://github.com/kamioj)
-
-</div>
+License: MIT（上游）· 二开产物同样 MIT 延续。
