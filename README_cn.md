@@ -2,371 +2,159 @@
 
 # spec-workflow
 
-**Spec-driven development plugin for Claude Code**
+**三端统一的 Spec-Driven 开发工作流：Claude Code · Codex CLI · Cursor**
 
-让大改动可控可回滚——调研、拷问、提案、HARD GATE、实施、验证、归档，每步可重入、可硬约束、可派单。
+让大改动可控可回滚——调研、拷问、提案、**HARD GATE 硬门**、实施、独立验收、归档。每步可重入、可硬约束、可派单。
 
-[![Version](https://img.shields.io/badge/version-0.4.2-blue.svg)](https://github.com/kamioj/spec-workflow)
-[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](https://github.com/kamioj/spec-workflow)
-[![Claude Code](https://img.shields.io/badge/Claude%20Code-v2.1+-purple.svg)](https://docs.claude.com/en/docs/claude-code)
+[![Version](https://img.shields.io/badge/version-0.5.3-blue.svg)](https://github.com/bcxdawn222/spec)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-[English](README.md) | **中文**
+**一套工作流，三个宿主。** · [English](README.md)
 
 </div>
 
 ---
 
-## Why
+## 为什么
 
-AI 辅助的 spec-driven development 已有两种范式：
+AI 辅助 spec-driven development 的两种既有范式：
 
-- **快流**：直接动手，hook 兜底（hookify / superpowers brainstorm 简版）
-- **重流**：先 spec 后做，但流程僵化（OpenSpec 4 命令、superpowers brainstorm 9 步）
+- **快流**：直接动手、hook 兜底——容易跑偏
+- **重流**：先 spec 后做但僵化——OpenSpec 4 命令、superpowers 9 步
 
-**spec-workflow 走第三路**：保留"先想清楚再动手"的价值，但把流程拆成 12 个独立 slash 命令——每阶段可重入、可中断、可单点重做。配 3 个硬门 hook 让"该停的地方真停下来"，1 个 Stop 提醒 hook 让"实施收尾必有验证"，外加 1 个 Stop 驱动器让 `/spec:loop` 的自主轮次成为硬机制。
+**spec-workflow 走第三路**：保留"先想清楚再动手"的价值，把流程拆成 **12 个独立命令**——每阶段可重入、可中断、可单点重做。3 个硬门 hook 让"该停的地方真停下来"，外加 Stop 驱动器让 `/spec:loop` 自主轮次成为硬机制。
 
-### Comparison
+### 差异化对比
 
 | 维度 | spec-workflow | OpenSpec | superpowers |
 |---|---|---|---|
 | 阶段控制 | 显式 HARD GATE + hook 拦截 | fluid 软警告 | 9 步硬流程 |
-| 待决点 `[TBD]` | 允许 + hook 强制清空 | Open Questions 可滞留 | 严禁，必须当场消解 |
-| 命令粒度 | 12 个独立命令 | 4 命令一把梭 | skill-based 单流程 |
-| 中途重入 | 每阶段独立调用 | `/opsx:continue` 推进 | 重头来 |
-| 反作弊精神 | 命令 + agent 双层 + opt-in flag | 无 | 隐含 |
+| 待决点 [TBD] | 允许 + hook 强制清空 | 可滞留 | 严禁 |
+| 命令粒度 | 12 个独立命令 | 4 命令一把梭 | skill 单流程 |
+| 中途重入 | 每阶段独立调用 | continue 推进 | 重头来 |
+| 反作弊 | 命令 + agent 双层 + opt-in | 无 | 隐含 |
 
 定位：**单人 + 大改动 + 防呆机制**——比 OpenSpec 严，比 superpowers 灵活。
 
 ---
 
-## Quick Start
+## 特性
 
-### Install
-
-```pwsh
-# 配 GitHub token（private repo 必需）
-$env:GITHUB_TOKEN = "ghp_xxxxxxxxxxxx"
-
-# 注册 marketplace + 装 plugin
-claude plugin marketplace add kamioj/spec-workflow
-claude plugin install spec@spec-workflow
-```
-
-**用 OpenAI Codex CLI？** 同一工作流以 Codex 插件形式从本仓库分发——同样的硬门、同样的工件，命令形式为 `$spec-*` 技能：
-
-```sh
-codex plugin marketplace add kamioj/spec-workflow
-codex plugin add spec@spec-workflow
-```
-
-完整 Codex 安装步骤（`$spec-setup` 补装 agents、一次性 hooks 信任）与已知差异见 [codex/README.md](codex/README.md)。
-
-### 可选依赖（不会自动安装——不装也能完整跑通，插件优雅降级）
-
-Claude Code 插件只分发文件（命令 / hook / agent / 规则），**从不往你机器上装软件**。两个外部工具解锁增强层，均为自愿安装：
-
-| 工具 | 解锁什么 | 安装 | 不装的话 |
-|---|---|---|---|
-| [ast-grep](https://github.com/ast-grep/ast-grep) | charter 审计的机器扫描（`rules/dirty-data/`，AST 级检测吞异常/catch 返默认值） | `scoop install main/ast-grep` 或 `npm i -g @ast-grep/cli` | verifier 退回手工模式，并在 Evidence 里如实声明 `not run` |
-| Codex CLI | `/spec:propose` 与 `/spec:verify` 的 `--codex` 异构他审 | `npm i -g @openai/codex`，然后运行一次 `codex`——首次运行会引导完成登录 | `--codex` 不可用；默认的独立审查不受影响 |
-
-### Try it
-
-启动 claude 后：
-
-```
-/spec:status                          # 应输出"无活跃 SDD change"
-/spec:research "Caffeine vs Redis"    # 开一个调研
-```
-
-3 分钟内 `research.md` 会落在 `spec/changes/caffeine-vs-redis/` 目录里。
-
-接下来照流程走：`/spec:ask` 和你一起消化待决的 `[TBD]` → `/spec:propose` 写提案并**在 HARD GATE 停下等你批准** → `/spec:apply` 实施 → `/spec:verify` 独立审查 → 想收尾时说"归档"。迷路了就 `/spec:status`，它会告诉你在哪一步、下一步跑什么。
-
-想整体托管？`/spec:workflow <task>` 端到端自动跑，全程只在**两个点**停下：HARD GATE（审提案——代理替你做的决定全部亮明，不可逆的置顶）和验收（说"归档"）。中途零提问：待决点在内部分诊消化，提案出闸前先被对抗批评面板攻击一轮；你在两个触点给出的评价驱动不限轮数的改进——每条评价都会被逐条回应（采纳 / 有理由地反驳 / 部分采纳），绝不照单全收。
+- **全流程**：research → ask → (design) → propose → **HARD GATE** → apply → verify → archive
+- **硬门是 hook 拦截不是提示词**：跳过流程直接被拦下并给出原因——0% 违规率（Claude Code / Codex CLI）
+- **独立验收**：`spec-verifier` 在刻意全新的上下文中运行——写代码的对话永不自审；证据先行，铁律：*无新鲜验证证据就没有通过*
+- **验证账本** `verify.md`：稳定发现编号（V-N）、跨轮对比、未修复项自动升级为 fail
+- **反作弊条款**：没跑过的不算成功；绕过必须声明；自报成功独立重跑
+- **Stuck 保护**：同一方向 3 次连续失败 → 强制停止自检；盲重试不算
+- **Charter 审计**：猎捕静默 fallback / 吞异常 / 回退旧逻辑——脏数据类缺陷（数据写路径 = critical）
+- **跨栈并行派单**：前后端 spec-dev 按钉死的接口契约并行实施
+- **内置技术栈规范**：Vue / React / uni-app（小程序）/ Java / Python / Flutter / TS 风格包
+- **一套流程三个宿主**：Claude Code 插件 · Codex CLI 插件 · Cursor 移植版
 
 ---
 
-## Features
+## 快速开始
 
-### 12 个独立 slash 命令
+### Claude Code
 
-| 类别 | 命令 | 做什么 |
-|---|---|---|
-| **入口** | `/spec:workflow <task>` | 全流程托管——待决点内部分诊，只停 HARD GATE + 验收两个点 |
-|  | `/spec:loop <goal>` | 目标驱动的**自主循环**：批准一次目标+验收清单+轮次预算，之后逐轮调研/实施/验证/复盘——钩子驱动、账本记忆——直到验收通过或触发保险丝 |
-|  | `/spec:status` | 报告当前 change 在哪一步 |
-| **信息收集** | `/spec:research <方向>` | 调研业界做法，标 `[TBD]` |
-|  | `/spec:ask` | 拷问消化 `[TBD]` |
-|  | `/spec:chat` | 讨论模式，不动文档 |
-| **设计 & 方案** | `/spec:design` | 技术设计梳理（按需） |
-|  | `/spec:propose [--codex]` | 写 proposal + HARD GATE；`--codex` 让 codex 挑刺方案 |
-|  | `/spec:revise [why\|what\|how\|risk]` | 局部改 proposal |
-| **执行 & 验证** | `/spec:apply [flags]` | 派 agent 实施 |
-|  | `/spec:verify [--codex] [--fix]` | 独立验证代理审查（三维 + charter 审计）；`--codex` codex 异构他审，`--fix` codex 直接改 |
-| **收尾** | `/spec:archive` | 归档当前 change |
+```bash
+claude plugin marketplace add bcxdawn222/spec
+claude plugin install spec@spec
+```
 
-### 5 个 Hook——3 个硬门 + 1 个提醒 + 1 个循环驱动器
+会话里输入：
 
-`UserPromptSubmit` 事件上 **shell 脚本拦截**违反流程的命令；`Stop` 事件上一个提醒 hook 兜住"实施结束没验证"，一个**驱动器**把 `/spec:loop` 的"下一轮"从提示词纪律变成硬机制：
+```
+/spec:workflow "做一个带登录的 uni-app 小程序商城"
+```
 
-| Hook | 何时触发 | 做什么 |
-|---|---|---|
-| `check-tbd.sh` | `/spec:propose` 之前 | research.md 还有 `[TBD-N]` 就拒绝执行 |
-| `check-gate.sh` | `/spec:apply` 之前 | 前置条件不齐就拒绝：proposal.md 缺失/缺节（四节），或活跃 change 不唯一 |
-| `check-archive.sh` | `/spec:archive` 之前 | change 绕过了流程（proposal 未过 gate / tasks 有未完成项 / 没有 proposal）就拒绝；有意为之时说 `force` 或 `abandoned` 放行 |
-| `check-verify-reminder.sh` | Stop（Claude 结束回合时） | 活跃 change 已 APPROVED 但没有 verify.md 账本 → 把 Claude 顶回去补收尾验证（或明说"在等用户决策"再停）；每次 stop 最多提醒一次，防死循环 |
-| `loop-driver.sh` | Stop，且恰好存在 1 份 `running` 状态的循环账本时 | 再注入 `/spec:loop` 的下一轮（Stop 事件 JSON 契约，探针实证）——或按**四种互异的终止说明**放行：验收达成 / 轮次上限 / 无进展 / 拒写复盘 / 账本损坏。所有熔断信号全部机械（checkbox 计数、工作树指纹），从不采信模型自报"有进展" |
+### Codex CLI
 
-**软约束 vs 硬约束**：prompt 里写"必须做 X"，模型可能违反；hook 是 shell 脚本拦截，**违反率 0**。
+```bash
+codex plugin marketplace add bcxdawn222/spec
+codex plugin install spec@spec
+```
 
-**`/spec:loop` vs 裸自喂循环**（ralph 式）：驱动机制相同，但多了验收清单作为成功出口、**终验时的全量独立审计**（轮内只做廉价自检，中途打勾是"声明"，审计不过会被打回未勾——谎勾永远产生不了虚假通过）、跨轮账本（`loop.md`：轮次+经验库）、多层保险丝。**不要与其它 Stop 驱动的循环器（如官方 ralph-loop 插件）在同一会话同时运行**——两个驱动器抢同一个 Stop 事件的合并语义未定义。
+会话里输入：
 
-### 1 个开发 Agent（按 scope 派遣）
+```
+$spec-workflow "做一个带登录的 uni-app 小程序商城"
+```
 
-| scope | 负责 |
+### Cursor
+
+```powershell
+# 把 sdd-cursor 移植版复制到项目根
+Copy-Item sdd-cursor\.cursor -Recurse -Force
+Copy-Item sdd-cursor\AGENTS.md -Force
+Copy-Item sdd-cursor\scripts -Recurse -Force
+Copy-Item sdd-cursor\templates -Recurse -Force
+Copy-Item sdd-cursor\references -Recurse -Force
+# 重启 Cursor 后：
+/spec:workflow "做一个带登录的 uni-app 小程序商城"
+```
+
+---
+
+## 12 个命令
+
+| 命令 | 职责 |
 |---|---|
-| `frontend` | UI / 路由 / 组件 / 样式 / 客户端交互 |
-| `backend` | 服务端逻辑 / API / 数据模型 / DB 迁移 / 中间件 |
-
-`spec-dev` 一个 agent，前端 / 后端是派遣时传的 scope。跨前后端项目，接口契约先固化在 `design.md ## Interfaces`，**并发派两个 `spec-dev`**（一 frontend、一 backend）并行实施（不串行）。
-
-### 1 个验证 Agent（全新上下文）
-
-`spec-verifier` 由 `/spec:verify` 派遣，**刻意给全新上下文**——写代码的对话不再自审。协议：无新鲜证据不得判 pass（dev agent 自报的成功要复跑，不采信）、证据先行（引用不出真实代码 = 不算发现，每维度上限 3 条）、反驳轮（辩护必须引用 gate 决策原文）、ast-grep 机器扫描自带 `rules/dirty-data/` 规则包（已实测：连"打了日志仍 return null"都能抓，正常 throw 零误报）。
-
-### opt-in 增强 flag
-
-`/spec:apply` 默认轻量。三个 flag 按需启用：
-
-| flag | 启用规则 | 适用场景 |
-|---|---|---|
-| `design` | 反 AI slop | 营销页 / 作品集 / 视觉重要的前端 |
-| `solid` | 反偷懒（禁 workaround） | 一次性脚本怕走捷径 |
-| `verify` | 反幻觉（先读再写） | 复杂代码库怕乱猜 |
-
-可组合：
-
-```
-/spec:apply design solid verify    # 三件套全启
-```
+| `/spec:workflow <任务>` | 全流程托管，只停两个点——HARD GATE 与验收 |
+| `/spec:loop <目标>` | 目标驱动自主循环（Plan→Act→Verify→Retrospect），机械熔断 |
+| `/spec:research <方向>` | 调研实践 + 约束，标 [TBD] |
+| `/spec:ask` | 消解 [TBD]（交互式 / workflow 内自动分诊） |
+| `/spec:design` | 架构 / 接口契约 / 数据模型（跨栈必做） |
+| `/spec:propose` | 写四段式方案 + critique 自审 → 输出 HARD GATE |
+| `/spec:revise <段落>` | 改一段、清 APPROVED、重新出 gate |
+| `/spec:apply` | 实施（自动追加 APPROVED；派 spec-dev，跨栈并行） |
+| `/spec:verify` | 独立 spec-verifier 审计 → 更新账本 |
+| `/spec:status` | 查看当前阶段 |
+| `/spec:chat` | 讨论模式，不动文档 |
+| `/spec:archive` | 硬门归档 + 复盘 + knowledge.md |
 
 ---
 
-## Workflow
+## 仓库结构
 
-```mermaid
-graph LR
-    A[research<br/>调研]:::cmd -->|含 TBD| B[ask<br/>拷问]:::cmd
-    B --> A
-    A -->|TBD 清空| D{需要设计?}
-    D -->|复杂| E[design<br/>技术设计]:::cmd
-    D -->|简单| F[propose<br/>写方案]:::cmd
-    E --> F
-    F -->|HARD GATE| G{用户批准?}:::gate
-    G -->|是| H[apply<br/>派 agent 实施]:::cmd
-    G -->|否| I[revise<br/>修订]:::cmd
-    I --> G
-    H --> J[verify<br/>验证]:::cmd
-    J -->|通过| K[archive<br/>归档]:::cmd
-    J -->|失败| H
-
-    classDef cmd fill:#e1f5fe,stroke:#01579b,color:#000
-    classDef gate fill:#fff9c4,stroke:#f57f17,color:#000
+```
+/                      ← Claude Code 插件（根目录 /spec:x）
+├── .claude-plugin/    ← 插件清单
+├── commands/ agents/ skills/ hooks/ rules/ tools/
+├── core/              ← 单一事实源（node tools/generate.mjs 重新生成双端）
+├── codex/             ← Codex CLI 插件（$spec-x skills + hooks）
+└── sdd-cursor/        ← Cursor 移植版（命令 + 子代理 + Python 硬门 CLI）
 ```
 
-每个阶段独立。不顺手随时跳——`/spec:chat` 讨论、`/spec:revise why` 改某段、`/spec:research <新方向>` 重做调研。
+> **给贡献者**：只改 `core/`，不要改生成的树。`node tools/generate.mjs` 自动同步双端；`--check` 检测漂移。
 
 ---
 
-## Architecture
+## 验证账本示例
 
-### Repo layout
+```markdown
+## Round 0（stage: propose）
+| ID | 维度 | 严重级 | 状态 | 发现 | 证据 |
+|---|---|---|---|---|---|
+| V-1 | charter | major | fixed | 数据写路径静默 fallback | catch 吞异常 |
 
-```
-.
-├── .claude-plugin/
-│   ├── marketplace.json           # marketplace 清单（source: "./" 自指仓库根）
-│   └── plugin.json                # plugin 清单
-├── core/                           # 两端全部 markdown 的单一事实源
-├── tools/generate.mjs              # 从 core/ 生成 commands/ skills/ rules/ agents/ 与 codex/skills|agents；--check 防漂移
-├── codex/                          # OpenAI Codex CLI 移植版（同流程同硬门；见 codex/README.md）
-├── commands/                       # 12 个 slash 命令——由 core/ 生成，勿手改
-├── hooks/                          # 硬约束（POSIX sh,全平台）+ 夹具套件
-│   ├── hooks.json
-│   ├── check-tbd.sh
-│   ├── check-gate.sh
-│   ├── check-archive.sh
-│   ├── check-verify-reminder.sh
-│   └── loop-driver.sh              # /spec:loop 的 Stop 事件驱动器
-├── agents/
-│   ├── spec-dev.md                 # 按 scope（frontend/backend）派遣；跨栈并发派两个
-│   └── spec-verifier.md            # /spec:verify 派遣的全新上下文验证者
-├── rules/                          # ast-grep 规则包（charter 审计机器扫描）
-│   ├── sgconfig.yml
-│   └── dirty-data/                 # 吞异常 / catch 返默认值（java/js/ts）
-├── scripts/
-│   └── codex-exec.ps1              # 所有 --codex 调用的统一包装（超时 / 会话复用 / Windows 兼容）
-└── skills/core/
-    ├── SKILL.md                    # plugin 总览（共享精神）
-    └── references/                 # 知识库
-        ├── proposal-spec.md        # 产物 spec：完整格式 + HARD GATE 规则
-        ├── design-spec.md
-        ├── tasks-spec.md
-        ├── agent-principles.md     # opt-in: 反偷懒 + 反幻觉
-        ├── frontend-aesthetics.md  # opt-in: 反 AI slop
-        ├── code-charter.md         # 编码期基线: fail-fast / 反静默兜底 / 不留旧逻辑回退
-        ├── alibaba-java.md         # 14 个语言/框架规范
-        ├── bulletproof-react.md
-        ├── vue-style.md vue-patterns.md
-        ├── react-patterns.md
-        ├── ts-conventions.md google-ts-style.md
-        ├── python-conventions.md php-conventions.md
-        ├── flutter-conventions.md
-        ├── js-style.md css-style.md
-        └── uniapp-miniprogram.md
+conclusion: fail → round 1 → fixed → pass
 ```
 
-### Runtime artifacts
-
-在你的项目里跑 sdd plugin 时产生的文件：
-
-```
-<your-project>/spec/
-├── knowledge.md                    # 项目级恒定事实（跨 change 沉淀；archive 维护、research 先读）
-├── changes/<change-name>/          # 活跃 change 工作区
-│   ├── research.md   必有          # 当前调研（Practices + Constraints + Open[TBD] + Decided，单文件）
-│   ├── research/     可选          # 调研方向废稿堆（被弃方向的 research.md 快照，无标记无链接，可复活）
-│   ├── design.md     可选          # 技术设计（架构 / 接口 / 数据模型）
-│   ├── proposal.md   必有          # 方案终态（含 APPROVED 标记）
-│   ├── tasks.md      可选          # 多执行体协作清单
-│   ├── verify.md     验证时生成    # 验证账本：稳定发现编号 + 轮次对比 + 未修复升级
-│   └── retrospect.md 归档时生成    # /spec:archive 写入：偏差审查 + 验证证据 + 遗留事项
-└── archive/<YYYY-MM-DD-name>/      # 已归档 change
-```
-
----
-
-## Development
-
-修改 plugin 内容后：
-
-```pwsh
-git add . && git commit -m "..."
-git push
-
-claude plugin marketplace update spec-workflow    # 同步 cache
-# 重启 claude（hook 必须重启加载）
-```
-
-或开发期跳过 push 循环，直接加载本地源码：
-
-```pwsh
-claude --plugin-dir .
-```
-
-`--plugin-dir` 加载的副本**优先级高于** marketplace cache，改了立刻能测。
-
----
-
-## Documentation
-
-- [skills/core/SKILL.md](skills/core/SKILL.md) — 共享精神（HARD GATE / 拷问规则 / 卡死保护 / 反作弊）
-- [Claude Code Plugin 官方文档](https://code.claude.com/docs/en/plugins) — 上游 plugin 机制参考
-
----
-
-## Limitations
-
-- **Claude Code 侧硬门全平台可用**（0.4.2+）：每个门是单一 POSIX sh 实现，经 hooks.json shell form 执行——macOS/Linux 走 `sh`，**Windows 走 Git Bash**。Windows 上唯一前置是 Git for Windows,而 Claude Code 自身的 Bash 工具本来就需要它。
-  - 排障：Windows 上出现提到 `sh` 的非阻断 `UserPromptSubmit hook error` = 缺 Git Bash——装 [Git for Windows](https://git-scm.com/download/win) 即可,装好前门只是失效(fail-open),不会拦你正常流程;报错提到 `powershell.exe`/`pwsh` = 会话还在跑 0.4.2 之前的旧插件——`/reload-plugins` 或重启。
-- **未做的扩展**：sdd-researcher / sdd-reviewer 专属 agent / MCP server
-
----
-
-## Integration
-
-与全局 CLAUDE.md 协议的协作约定：
-
-- **语言**：proposal / research 内容跟随你的工作语言；段标题英文（## Why / ## What / ## How / ## Risk）便于工具识别和 revise 参数化
-- **子代理委派**：research 阶段派全局 `@researcher`、apply 阶段派 plugin 内 `spec-dev`（按 scope）
-- **并发**：互不依赖的任务一次性并发派单
-
----
-
-## Verified Decisions
-
-调研后确认无问题的设计点（曾担心过；证据引用 Claude Code 官方 plugin-dev 插件与 hookify 源码，安装它们可复核）：
-
-| 项 | 结论 | 证据 |
-|---|---|---|
-| stdin 用户输入字段名 | ⚠️ 2026-07-15 订正:UserPromptSubmit 信封字段实为 **`prompt`** | 真实会话探针捕获的原始 stdin:`{"hook_event_name":"UserPromptSubmit",...,"prompt":"/spec:apply"}`。早先"`user_prompt` 正确"的裁定依据(hookify 读 `input_data.get('user_prompt','')`)描述的是 hookify 自己的宽松读取器,不是 Claude Code 实际发送的信封 |
-| plugin agent 调用方式 | ✅ 直接用 agent name（`spec-dev`），无需 plugin 前缀 | plugin-dev/skills/agent-development/SKILL.md § Namespacing |
-| agent frontmatter 必填字段 | ✅ name / description / model / color 全部就位 | plugin-dev/skills/agent-development/SKILL.md § Frontmatter Fields |
-| agent model 策略 | ✅ `inherit`（继承父对话模型，官方推荐） | plugin-dev/skills/agent-development/SKILL.md § model |
-
----
-
-## Changelog
-
-- **0.5.3** — 激活改为**仅限用户显式触发**：core skill 不再按任务尺寸自激活；尺寸信号（>150 行 / 3+ 文件 / 新依赖 / 架构选择）最多换来一句建议，用户不接话就直接干活不进 spec。"小改动被自动漂移进 spec 仪式"现列为头号反模式——比"大改动没走 spec"更糟（spec 随时可以补invoke，被浪费在不想要的流程上的时间回不来）
-- **0.5.2** — loop 验证改为终审模型（逐轮 verifier 派遣被证实吃掉真实运行预算的大头）：
-  - 轮内只跑模型自己的工作性检查（轮中不再派任何子代理）；中途打勾是自我声明
-  - 最终验收成为循环唯一的独立审计，全量且**迭代式**：不过的项被打回未勾、循环继续修——谎勾依然产生不了虚假通过，只是多花一轮审计
-  - "每轮只做一件事"校准为"一个连贯增量"（别把小功能切成仪式性轮次）
-  - 批评面板改双速：手动 `/spec:propose` 用多选问询让你挑镜头（主审/回归兼容/可测性/性能）；workflow 全自动只派主审+回归兼容，其余在闸门按需追加（内容触发的安全镜头退役）
-  - 同一"终审原则"落到 `/spec:apply`：节点级只做自跑工作检查，唯一的 spec-verifier 派遣在最后一项落地之后——旧 frontmatter 里"每节点就近调 /spec:verify"（"验证-修改-验证-修改"空转的教唆源）已删除
-  - 上帝视角查重再砍三处节拍器验证：workflow 第 7 步不再背靠背跑第二次全量审计（直接消费 apply 的收尾账本轮；修复轮只重验 open findings + 修复 diff）、verify 修复轮改定域重验、research 的网调子代理改为条件触发（仅外部决策空间；内部重构只做现状勘察，跳过仪式）
-- **0.5.1** — 0.5.0 发布当天 max-effort 评审的加固批（25 条实锤）：四条链路断点修净（可照抄的账本模板、resume 会话重绑、verifier 的 loop 账本分支、归档门 loop 感知）、驱动器边界族（管道退出码、熔断阈值校验、HEAD 感知指纹、上限/达标边界、孪生一致的严格标题匹配）、守卫加固（canary 收编同步扫描、再注入模板登记同步集）、CLAUDE.md hook 契约表整体重写
-- **0.5.0** — `/spec:loop`：目标驱动的自主循环，钩子驱动：
-  - 新命令 + 轮次账本（`loop.md`：目标 / 验收清单 / 轮次记录 / 经验库；`.loop-state` 是驱动器私有状态——永远不要手改）：批准一次目标，之后每轮都经独立验证，直到验收达成或触发保险丝
-  - 双宿主新增 Stop 事件钩子 `loop-driver`：经 Stop JSON 契约再注入下一轮（Claude Code 2.1.208 与 codex-cli 0.144.3 双探针实证，原始捕获见 `hooks/loop-driver.sh` 头注与 `codex/hooks/SCHEMA.md`）；熔断全机械（轮次上限 / checkbox 计数+工作树指纹的无进展判定 / 拒写复盘 / 账本损坏），各有互异的终止说明
-  - fixture 套件扩至 68（Claude）/ 66（Codex）案，含 JSON 转义 canary（账本文本绝不泄入驱动器 JSON）与 reminder 不变量钉
-- **0.4.2** — Claude 侧硬门全平台化（macOS / Linux / Windows）：
-  - 四个 PowerShell hook 被单一 POSIX sh 实现**整体替换**，经 hooks.json shell form 执行（unix 走 `sh`，Windows 走 Git Bash——Claude Code 自身 Bash 工具本就要求它）；0.3.3 的 powershell.exe launcher 机关随之退役
-  - 门改读 `$CLAUDE_PROJECT_DIR` 而非解析 stdin JSON——中文等非 ASCII 项目路径不再可能静默瘫痪硬门
-  - 实施期探针实证修正一条祖传契约：Claude 侧 stdin 字段实为 `prompt`（旧知识 `user_prompt` 有误，旧 ps1 门在该轴上早已静默失效）
-  - 新增 Claude 侧夹具套件（43 用例）：与 Codex 集按场景名同步、中文路径用例、env 缺失 fail-open 用例、以及"错误契约金丝雀"（门若以 codex 式 stdout JSON 假阻断，夹具当场红）；Git Bash 与 WSL 双环境全绿
-  - 教条修订：插件 hook 变更用 `/reload-plugins` 即可生效（无需重启会话；monitors 按官方文档除外）
-- **0.4.1** — Codex 端规则包路径修复：verifier 的 ast-grep 指令只指向插件化之前的脚本安装位，插件安装的用户会静默失去机器扫描（真实飞行中以 `not run` 声明暴露）。生成文本现在跨两个安装根定位 `sgconfig.yml`（插件缓存 + `~/.agents/skills`），sh/pwsh 双平台实测通过；`codex/AGENTS.md` 的安装路径描述改为安装方式无关。
-- **0.4.0** — `/spec:workflow` 成为真正的两触点自动驾驶：
-  - 待决点**分诊代替提问**：有证据的直接定，可逆偏好自决并标 `auto`，不可逆/产品语义的临时拍板标 `escalated`——置顶 HARD GATE 亮明，沉默即默认生效，apply 开工首行再回显一次
-  - 提案出闸前先过**批评面板**：首席"必要性反驳"批评者（四问反驳；没有真实触发场景的静默兜底吃删除裁定，响亮的不变量护栏按爆炸半径评审而非历史事故）+ 回归兼容 + 可测性，安全/性能按内容加编；一轮反驳收敛，findings 以 round 0 落验证账本
-  - gate 的 Changes 块改为**同一具体场景的前后镜像**（Problem / After / Cost，各 ≤2 行）——非开发者也能读懂
-  - 你的反馈成为一等回路：闸口与验收的评价获得逐条采纳/反驳/部分采纳回应，被采纳项以 user-sourced findings 进账本，改进轮数不设上限（代理内循环仍封顶：反驳一轮、自动修复两轮）
-  - `/spec:status` 从工件现算里程碑视图（轮次、决策、触点位置）——零新增存储，永不漂移；归档 retrospect 增加自决校准项，反哺 `spec/knowledge.md`
-- **0.3.0 – 0.3.3** — 双端时代：同一套工作流以 OpenAI Codex CLI 插件形态从本仓发布（`codex/`、`$spec-x` skills、pwsh+sh 双胞胎门 hook + 40 用例夹具）；两棵插件树由单一 `core/` 源生成（`tools/generate.mjs --check` 防漂移）；Claude 侧 hook 换 `powershell.exe` 托管的探测降级 launcher——Store 版 PowerShell 7 不再静默瘫痪三道门（0.3.3）；ask 选项改字母编号避免与题号连读（0.3.2）；代理派发契约修正（0.3.1）
-- **0.2.1 – 0.2.3** — 首批真实运行 + 两轮独立审计的实战加固：
-  - verifier 输出枚举纪律（0.2.1）
-  - 门 hook 只在调用时触发、提及不拦——"apply 是干嘛的"这类提问正常放行（0.2.2）
-  - apply 门改查前置条件（proposal 存在 + 四节齐全 + 单活跃 change）而非 APPROVED 标记，修复一个 happy path 死锁（hook 要求的标记只有 apply 自己才能盖）；修复 `--codex` 工具权限（`/spec:propose --codex` 此前无法执行脚本）；扫平文档漂移（0.2.3）
-- **0.2.0**
-  - HARD GATE 增加讲解层：Changes 按"场景 → 如何避免 → 代价"写给决策者，并强制披露"未询问自决项"与"不在本次范围"
-  - proposal `## What` 每项带 `verify:` 验收条，节尾必有 **Not in this change** 范围边界，且贯穿到 agent 派单与 verify 排除区
-  - `/spec:verify` 改为派遣独立全新上下文的 `spec-verifier` agent（证据先行、反驳轮、可选 ast-grep 机器扫描 `rules/dirty-data/`），并落盘验证账本 `verify.md`（稳定发现编号 + 轮次对比 + 未修复项升级为 fail）
-  - charter 审计：兜底/降级/兼容路径必须溯源到 gate 决策，溯源不到即缺陷（数据写路径为 critical）；spec-dev 汇报强制披露每个 fallback 与 Evidence
-  - 新增两个 hook：`check-archive.sh`（拦截绕流程归档，`force`/`abandoned` 显式放行）、`check-verify-reminder.sh`（Stop 事件：回合不能在"已批准但无验证账本"状态下静默结束）
-  - 新增工件：归档复盘 `retrospect.md`（偏差审查 + 证据）、项目级 `spec/knowledge.md`（跨 change 沉淀，archive 维护、research 先读）
-  - tasks.md 的生成决策在 gate 上显式声明（触发条件 + 拆分），不再静默附带
-- **0.1.0** — 首版：11 命令 + 2 hook + 1 agent，从 skill 形态迁移而来
+严重级严格三档 `critical / major / minor`；结论严格二值 `pass / fail`——没有"有条件通过"。
 
 ---
 
 ## License
 
-本仓库采用 [MIT License](LICENSE)。
-
-**`references/` 内容声明**：
-
-- 全部为 sdd **自有内容**。其中技术栈规范（`js-style` / `vue-style` / `google-ts-style` / `alibaba-java` 等）是对应官方规范**关键要点的自有提炼**，已在各文件 frontmatter 的 `source` 字段注明参考来源——需要完整规范请访问官方链接，本项目不复制原文。
-- `bulletproof-react.md` 为基于 [bulletproof-react](https://github.com/alan2207/bulletproof-react)（MIT）的要点摘要。
-- `agent-principles.md` / `frontend-aesthetics.md` 的原则为自有表述，综合业界通用工程 / 设计共识整理。
+MIT。`references/` 内容为对应官方规范要点的自有提炼（各文件 frontmatter 注明 source）。
 
 ---
 
 <div align="center">
 
-Built with [Claude Code](https://claude.com/claude-code) · Maintained by [@kamioj](https://github.com/kamioj)
+让 AI 不只是*开始*干活，而是*完成*交付。
+
+[![Star History](https://img.shields.io/github/stars/bcxdawn222/spec.svg?style=social)](https://github.com/bcxdawn222/spec)
 
 </div>
