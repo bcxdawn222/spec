@@ -26,7 +26,13 @@ function Block([string]$reason) {
 }
 
 try {
-    $stdin = [Console]::In.ReadToEnd()
+    # [codex-hooks stdin patch] ReadToEnd() waits for EOF, but the Codex hook
+    # runner keeps the stdin pipe open, so every turn freezes until the hook's
+    # timeout fires. Codex writes exactly one single-line JSON payload, so
+    # ReadLine() returns as soon as that line arrives. Empty/absent input keeps
+    # the original fail-open behaviour (exit 0, no stdout).
+    $stdin = [Console]::In.ReadLine()
+    if ($null -eq $stdin) { $stdin = "" }
     if ([string]::IsNullOrWhiteSpace($stdin)) { exit 0 }
 
     $data = $stdin | ConvertFrom-Json
