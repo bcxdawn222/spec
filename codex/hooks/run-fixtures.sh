@@ -117,6 +117,11 @@ printf '# R\n\n## Open [TBD]\n(none)\n\n## Decided\n- [DEC-1] chosen | source [T
 run_case tbd-decided-only-allows   check-tbd allow "$(json "$P" '$spec-propose')"
 run_case tbd-mention-not-invoke    check-tbd allow "$(json "$P" 'explain $spec-propose please')"
 
+# regression: [TBD-N] provenance citations OUTSIDE ## Open (Practices/Constraints) must not block
+P=$(mkproj tbd-prov); mkdir -p "$P/spec/changes/c"
+printf '# R\n\n## Practices\n- pattern X (drove [TBD-1])\n\n## Constraints\n- limit Y, see [TBD-2]\n\n## Open [TBD]\n(none)\n\n## Decided\n- [DEC-1] chosen | source [TBD-1] | reason\n' > "$P/spec/changes/c/research.md"
+run_case tbd-provenance-ref-allows check-tbd allow "$(json "$P" '$spec-propose')"
+
 # ---- check-archive ----
 P=$(mkproj arch-unapproved); mkdir -p "$P/spec/changes/c"
 printf '%s' "$FULL_PROPOSAL" > "$P/spec/changes/c/proposal.md"
@@ -365,6 +370,262 @@ P=$(mkproj arch-loop-run); mkdir -p "$P/spec/changes/g"
 printf '%s' "$LOOP_RUNNING" > "$P/spec/changes/g/loop.md"
 run_case archive-loop-running-blocks check-archive block "$(json "$P" '$spec-archive')"
 run_case archive-loop-force-overrides check-archive allow "$(json "$P" '$spec-archive force')"
+
+# ---- 0.5.6 flow-elasticity: .paused / quick.md skip filters + archive quick branch
+#      (names mirrored on the Claude side; the reverse sync guard there enforces it) ----
+
+P=$(mkproj flex-paused-active); mkdir -p "$P/spec/changes/parked" "$P/spec/changes/live"
+printf '%s' "$FULL_PROPOSAL" > "$P/spec/changes/parked/proposal.md"
+printf 'paused: 2026-08-22 | reason: test\n' > "$P/spec/changes/parked/.paused"
+printf '%s' "$FULL_PROPOSAL" > "$P/spec/changes/live/proposal.md"
+run_case gate-paused-plus-active-allows check-gate allow "$(json "$P" '$spec-apply')"
+
+P=$(mkproj flex-paused-only); mkdir -p "$P/spec/changes/parked"
+printf '%s' "$FULL_PROPOSAL" > "$P/spec/changes/parked/proposal.md"
+printf 'paused: 2026-08-22 | reason: test\n' > "$P/spec/changes/parked/.paused"
+run_case gate-only-paused-blocks   check-gate block "$(json "$P" '$spec-apply')"
+
+P=$(mkproj flex-quick-active); mkdir -p "$P/spec/changes/hotfix" "$P/spec/changes/live"
+printf '# Quick: hotfix\n\nstatus: in-flight\n\n## Ask\n> q\n' > "$P/spec/changes/hotfix/quick.md"
+printf '%s' "$FULL_PROPOSAL" > "$P/spec/changes/live/proposal.md"
+run_case gate-quick-plus-active-allows check-gate allow "$(json "$P" '$spec-apply')"
+
+P=$(mkproj flex-upgraded); mkdir -p "$P/spec/changes/grown"
+printf '# Quick: grown\n\nstatus: done\n' > "$P/spec/changes/grown/quick.md"
+printf '%s' "$FULL_PROPOSAL" > "$P/spec/changes/grown/proposal.md"
+run_case gate-upgraded-quick-counts check-gate allow "$(json "$P" '$spec-apply')"
+
+P=$(mkproj flex-tbd); mkdir -p "$P/spec/changes/parked" "$P/spec/changes/live"
+printf 'paused: 2026-08-22 | reason: test\n' > "$P/spec/changes/parked/.paused"
+printf '# R\n\n## Open [TBD]\n- [TBD-9] x\n' > "$P/spec/changes/parked/research.md"
+printf '# R\n\n## Open [TBD]\n(none)\n\n## Decided\n- [DEC-1] chosen | source [TBD-1] | reason\n' > "$P/spec/changes/live/research.md"
+run_case tbd-paused-plus-active-allows check-tbd allow "$(json "$P" '$spec-propose')"
+
+P=$(mkproj flex-rem-paused); mkdir -p "$P/spec/changes/parked"
+printf '%s\n<!-- APPROVED: 2026-08-22 12:00 -->\n' "$FULL_PROPOSAL" > "$P/spec/changes/parked/proposal.md"
+printf 'paused: 2026-08-22 | reason: test\n' > "$P/spec/changes/parked/.paused"
+run_case reminder-paused-skipped-allows check-verify-reminder allow "$(json_stop "$P" false)"
+
+P=$(mkproj flex-rem-quick); mkdir -p "$P/spec/changes/hotfix" "$P/spec/changes/live"
+printf '# Quick: hotfix\n\nstatus: in-flight\n' > "$P/spec/changes/hotfix/quick.md"
+printf '%s\n<!-- APPROVED: 2026-08-22 12:00 -->\n' "$FULL_PROPOSAL" > "$P/spec/changes/live/proposal.md"
+run_case reminder-quick-coexist-nudges check-verify-reminder block "$(json_stop "$P" false)"
+
+QUICK_DONE='# Quick: h
+
+status: done
+date: 2026-08-22
+
+## Ask
+> fix the label
+
+## Done
+- x
+
+## Concerns
+none
+
+## Evidence
+verifier: grep -> 0 findings
+'
+P=$(mkproj flex-arch-qdone); mkdir -p "$P/spec/changes/h"
+printf '%s' "$QUICK_DONE" > "$P/spec/changes/h/quick.md"
+run_case archive-quick-done-allows check-archive allow "$(json "$P" '$spec-archive')"
+
+P=$(mkproj flex-arch-qflight); mkdir -p "$P/spec/changes/h"
+printf '%s' "$QUICK_DONE" | sed 's/^status: done$/status: in-flight/' > "$P/spec/changes/h/quick.md"
+run_case archive-quick-inflight-blocks check-archive block "$(json "$P" '$spec-archive')"
+run_case archive-quick-force-overrides check-archive allow "$(json "$P" '$spec-archive force')"
+
+P=$(mkproj flex-arch-upg); mkdir -p "$P/spec/changes/grown"
+printf '%s' "$QUICK_DONE" > "$P/spec/changes/grown/quick.md"
+printf '%s' "$FULL_PROPOSAL" > "$P/spec/changes/grown/proposal.md"
+run_case archive-upgraded-quick-audits-approved check-archive block "$(json "$P" '$spec-archive')"
+
+# ---- fix stream tier (0.6.0) ----
+
+P=$(mkproj fix-active); mkdir -p "$P/spec/changes/fixes" "$P/spec/changes/live"
+printf '# Fixes\n\nstatus: open\n\n## F-1: x\n\n### Ask\n> q\n' > "$P/spec/changes/fixes/fix.md"
+printf '%s' "$FULL_PROPOSAL" > "$P/spec/changes/live/proposal.md"
+printf '# R\n\n## Open [TBD]\n(none)\n\n## Decided\n- [DEC-1] chosen | source [TBD-1] | reason\n' > "$P/spec/changes/live/research.md"
+run_case gate-fix-plus-active-allows check-gate allow "$(json "$P" '$spec-apply')"
+run_case tbd-fix-plus-active-allows check-tbd allow "$(json "$P" '$spec-propose')"
+
+P=$(mkproj fix-rem); mkdir -p "$P/spec/changes/fixes" "$P/spec/changes/live"
+printf '# Fixes\n\nstatus: open\n\n## F-1: x\n' > "$P/spec/changes/fixes/fix.md"
+printf '%s\n<!-- APPROVED: 2026-08-24 12:00 -->\n' "$FULL_PROPOSAL" > "$P/spec/changes/live/proposal.md"
+run_case reminder-fix-coexist-nudges check-verify-reminder block "$(json_stop "$P" false)"
+
+# ship preconditions: first-ship deadlock canary -- the gate must NEVER require status: shipped
+P=$(mkproj fix-ship-none)
+run_case ship-no-batch-blocks check-archive block "$(json "$P" '$spec-ship')"
+
+P=$(mkproj fix-ship-empty); mkdir -p "$P/spec/changes/fixes"
+printf '# Fixes\n\nstatus: open\n' > "$P/spec/changes/fixes/fix.md"
+run_case ship-empty-batch-blocks check-archive block "$(json "$P" '$spec-ship')"
+
+FIX_OPEN='# Fixes
+
+status: open
+opened: 2026-08-24
+
+## F-1: fix the label
+date: 2026-08-24
+files: src/a.js
+
+### Ask
+> fix it
+
+### Root cause
+wrong key
+
+### Self-check
+npm test -> exit 0
+
+### Concerns
+none
+'
+P=$(mkproj fix-ship-ok); mkdir -p "$P/spec/changes/fixes"
+printf '%s' "$FIX_OPEN" > "$P/spec/changes/fixes/fix.md"
+run_case ship-with-entries-allows check-archive allow "$(json "$P" '$spec-ship')"
+
+P=$(mkproj fix-ship-upg); mkdir -p "$P/spec/changes/fixes"
+printf '%s' "$FIX_OPEN" > "$P/spec/changes/fixes/fix.md"
+printf '%s' "$FULL_PROPOSAL" > "$P/spec/changes/fixes/proposal.md"
+run_case ship-upgraded-fixes-blocks check-archive block "$(json "$P" '$spec-ship')"
+
+FIX_SHIPPED='# Fixes
+
+status: shipped
+opened: 2026-08-24
+
+## F-1: fix the label
+date: 2026-08-24
+files: src/a.js
+
+### Ask
+> fix it
+
+### Root cause
+wrong key
+
+### Self-check
+npm test -> exit 0
+
+### Concerns
+none
+
+## Audit
+verifier round: npm test -> exit 0; 0 findings
+'
+P=$(mkproj fix-arch-shipped); mkdir -p "$P/spec/changes/fixes"
+printf '%s' "$FIX_SHIPPED" > "$P/spec/changes/fixes/fix.md"
+run_case archive-fix-shipped-allows check-archive allow "$(json "$P" '$spec-archive')"
+
+P=$(mkproj fix-arch-open); mkdir -p "$P/spec/changes/fixes"
+printf '%s' "$FIX_OPEN" > "$P/spec/changes/fixes/fix.md"
+run_case archive-fix-unshipped-blocks check-archive block "$(json "$P" '$spec-archive')"
+run_case archive-fix-force-overrides check-archive allow "$(json "$P" '$spec-archive force')"
+
+P=$(mkproj fix-arch-upg); mkdir -p "$P/spec/changes/fixes"
+printf '%s' "$FIX_SHIPPED" > "$P/spec/changes/fixes/fix.md"
+printf '%s' "$FULL_PROPOSAL" > "$P/spec/changes/fixes/proposal.md"
+run_case archive-upgraded-fix-audits-approved check-archive block "$(json "$P" '$spec-archive')"
+
+
+# ---- daily fix batches (fixes/<YYYY-MM-DD>/): gates exempt the parent, ship/archive scan every batch ----
+
+# dated batch only (no flat fix.md): gates still exempt the fixes parent
+P=$(mkproj fix-dated-active); mkdir -p "$P/spec/changes/fixes/2026-09-21" "$P/spec/changes/live"
+printf '%s' "$FIX_OPEN" > "$P/spec/changes/fixes/2026-09-21/fix.md"
+printf '%s' "$FULL_PROPOSAL" > "$P/spec/changes/live/proposal.md"
+printf '# R\n\n## Open [TBD]\n(none)\n\n## Decided\n- [DEC-1] chosen | source [TBD-1] | reason\n' > "$P/spec/changes/live/research.md"
+run_case gate-dated-fix-plus-active-allows check-gate allow "$(json "$P" '$spec-apply')"
+run_case tbd-dated-fix-plus-active-allows check-tbd allow "$(json "$P" '$spec-propose')"
+
+P=$(mkproj fix-dated-rem); mkdir -p "$P/spec/changes/fixes/2026-09-21" "$P/spec/changes/live"
+printf '%s' "$FIX_OPEN" > "$P/spec/changes/fixes/2026-09-21/fix.md"
+printf '%s\n<!-- APPROVED: 2026-08-24 12:00 -->\n' "$FULL_PROPOSAL" > "$P/spec/changes/live/proposal.md"
+run_case reminder-dated-fix-coexist-nudges check-verify-reminder block "$(json_stop "$P" false)"
+
+# ship: entries in a dated batch satisfy the precondition; all-empty dated batches block
+P=$(mkproj fix-ship-dated); mkdir -p "$P/spec/changes/fixes/2026-09-21"
+printf '%s' "$FIX_OPEN" > "$P/spec/changes/fixes/2026-09-21/fix.md"
+run_case ship-dated-batch-allows check-archive allow "$(json "$P" '$spec-ship')"
+
+P=$(mkproj fix-ship-dated-empty); mkdir -p "$P/spec/changes/fixes/2026-09-21"
+printf '# Fixes\n\nstatus: open\n' > "$P/spec/changes/fixes/2026-09-21/fix.md"
+run_case ship-dated-empty-blocks check-archive block "$(json "$P" '$spec-ship')"
+
+# direct archive of the fixes tree: every dated batch shipped -> allow; any open -> block
+P=$(mkproj fix-arch-dated-ok); mkdir -p "$P/spec/changes/fixes/2026-09-20" "$P/spec/changes/fixes/2026-09-21"
+printf '%s' "$FIX_SHIPPED" > "$P/spec/changes/fixes/2026-09-20/fix.md"
+printf '%s' "$FIX_SHIPPED" > "$P/spec/changes/fixes/2026-09-21/fix.md"
+run_case archive-dated-batches-shipped-allows check-archive allow "$(json "$P" '$spec-archive')"
+
+P=$(mkproj fix-arch-dated-open); mkdir -p "$P/spec/changes/fixes/2026-09-20" "$P/spec/changes/fixes/2026-09-21"
+printf '%s' "$FIX_SHIPPED" > "$P/spec/changes/fixes/2026-09-20/fix.md"
+printf '%s' "$FIX_OPEN" > "$P/spec/changes/fixes/2026-09-21/fix.md"
+run_case archive-dated-batch-open-blocks check-archive block "$(json "$P" '$spec-archive')"
+
+# ---- 0.6.4: loop dirs join the skip filter (field finding: a legit loop change was
+#      counted as an active full change and blocked $spec-propose as "missing research.md") ----
+
+# loop coexists: running loop dir + active full change -> propose/apply on the full change allowed
+P=$(mkproj loop-coexist); mkdir -p "$P/spec/changes/g" "$P/spec/changes/live"
+printf '%s' "$LOOP_RUNNING" > "$P/spec/changes/g/loop.md"
+printf '%s' "$FULL_PROPOSAL" > "$P/spec/changes/live/proposal.md"
+printf '# R\n\n## Open [TBD]\n(none)\n\n## Decided\n- [DEC-1] chosen | source [TBD-1] | reason\n' > "$P/spec/changes/live/research.md"
+run_case gate-loop-plus-active-allows check-gate allow "$(json "$P" '$spec-apply')"
+run_case tbd-loop-plus-active-allows check-tbd allow "$(json "$P" '$spec-propose')"
+
+# reminder window survives a coexisting loop dir (count filter)
+P=$(mkproj loop-rem-coexist); mkdir -p "$P/spec/changes/g" "$P/spec/changes/live"
+printf '%s' "$LOOP_RUNNING" > "$P/spec/changes/g/loop.md"
+printf '%s\n<!-- APPROVED: 2026-09-03 12:00 -->\n' "$FULL_PROPOSAL" > "$P/spec/changes/live/proposal.md"
+run_case reminder-loop-coexist-nudges check-verify-reminder block "$(json_stop "$P" false)"
+
+# precedence: an upgraded loop dir (loop.md + proposal.md) is a NORMAL full change
+P=$(mkproj loop-upgraded); mkdir -p "$P/spec/changes/grown"
+printf '%s' "$LOOP_RUNNING" > "$P/spec/changes/grown/loop.md"
+printf '%s' "$FULL_PROPOSAL" > "$P/spec/changes/grown/proposal.md"
+run_case gate-upgraded-loop-counts check-gate allow "$(json "$P" '$spec-apply')"
+
+# ---- current-change pointer (spec/changes/.current): hit / dangling fallback /
+#      paused-target fallback / reminder binding ----
+
+P=$(mkproj ptr-hit); mkdir -p "$P/spec/changes/a" "$P/spec/changes/b"
+printf '# R\n\n## Open [TBD]\n- [TBD-1] x\n' > "$P/spec/changes/a/research.md"
+printf '# R\n\n## Open [TBD]\n(none)\n\n## Decided\n- [DEC-1] ok\n' > "$P/spec/changes/b/research.md"
+printf '%s' "$FULL_PROPOSAL" > "$P/spec/changes/b/proposal.md"
+printf 'b\n' > "$P/spec/changes/.current"
+run_case tbd-pointer-selects-target check-tbd allow "$(json "$P" '$spec-propose')"
+run_case gate-pointer-selects-target check-gate allow "$(json "$P" '$spec-apply')"
+
+P=$(mkproj ptr-dangle-multi); mkdir -p "$P/spec/changes/a" "$P/spec/changes/b"
+printf '# R\n\n## Open [TBD]\n(none)\n' > "$P/spec/changes/a/research.md"
+printf '# R\n\n## Open [TBD]\n(none)\n' > "$P/spec/changes/b/research.md"
+printf 'ghost\n' > "$P/spec/changes/.current"
+run_case tbd-pointer-dangling-multi-blocks check-tbd block "$(json "$P" '$spec-propose')"
+
+P=$(mkproj ptr-dangle-one); mkdir -p "$P/spec/changes/only"
+printf '%s' "$FULL_PROPOSAL" > "$P/spec/changes/only/proposal.md"
+printf 'ghost\n' > "$P/spec/changes/.current"
+run_case gate-pointer-dangling-single-falls-back check-gate allow "$(json "$P" '$spec-apply')"
+
+P=$(mkproj ptr-paused); mkdir -p "$P/spec/changes/parked" "$P/spec/changes/live"
+printf 'paused: 2026-09-10 | reason: t\n' > "$P/spec/changes/parked/.paused"
+printf '# R\n\n## Open [TBD]\n(none)\n\n## Decided\n- [DEC-1] ok\n' > "$P/spec/changes/live/research.md"
+printf 'parked\n' > "$P/spec/changes/.current"
+run_case tbd-pointer-paused-target-falls-back check-tbd allow "$(json "$P" '$spec-propose')"
+
+P=$(mkproj ptr-rem); mkdir -p "$P/spec/changes/appr" "$P/spec/changes/draft"
+printf '%s\n<!-- APPROVED: 2026-09-10 12:00 -->\n' "$FULL_PROPOSAL" > "$P/spec/changes/appr/proposal.md"
+printf '# R\nwip\n' > "$P/spec/changes/draft/research.md"
+printf 'appr\n' > "$P/spec/changes/.current"
+run_case reminder-pointer-binds-nudge check-verify-reminder block "$(json_stop "$P" false)"
+printf 'draft\n' > "$P/spec/changes/.current"
+run_case reminder-pointer-other-allows check-verify-reminder allow "$(json_stop "$P" false)"
 
 # DEC-2: the documented resume re-bind command performs surgery on session_id ONLY
 assert_resume_rebind() {

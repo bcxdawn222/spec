@@ -32,10 +32,30 @@ for d in "$CHANGES_DIR"/*/; do
     [ -d "$d" ] || continue
     name=$(basename "$d")
     [ "$name" = "archive" ] && continue
+    # Skip suspended changes and self-auditing tier dirs -- quick/fix/loop without proposal.md
+    # (precedence: proposal.md wins -- an upgraded tier dir counts as a normal full change).
+    # Without this filter an unarchived quick/fix/loop/paused dir inflates the count and
+    # silences the single-active window.
+    [ -f "$d/.paused" ] && continue
+    [ -f "$d/quick.md" ] && [ ! -f "$d/proposal.md" ] && continue
+    [ ! -f "$d/proposal.md" ] && { [ -f "$d/fix.md" ] || ls "$d"*/fix.md >/dev/null 2>&1; } && continue
+    [ -f "$d/loop.md" ] && [ ! -f "$d/proposal.md" ] && continue
     set -- "$@" "$d"
 done
 
-# Only nudge in the unambiguous single-active-change window
+# Current-change pointer: when spec/changes/.current names a member of the active list,
+# the reminder binds to that change (coexisting ones are not its business). Dangling/
+# invalid pointer = silently ignored (fail-open family), falling back to single-active.
+if [ $# -gt 1 ] && [ -f "$CHANGES_DIR/.current" ]; then
+    cur=$(head -n1 "$CHANGES_DIR/.current" | tr -d '[:space:]')
+    if [ -n "$cur" ]; then
+        for d in "$@"; do
+            if [ "$(basename "$d")" = "$cur" ]; then set -- "$d"; break; fi
+        done
+    fi
+fi
+
+# Only nudge with an unambiguous target (the pointed change, or the single active one)
 [ $# -eq 1 ] || exit 0
 
 change=$1
@@ -57,5 +77,5 @@ fi
 
 block "SDD: change '$name' has an approved proposal but no implementation-round verification (verify.md absent, or holds only the round-0 critique).
 If implementation is unfinished (unchecked tasks.md items / What items not landed): CONTINUE implementing -- do not end the turn.
-If implementation just finished: run the closing three-dimension verification now and write the ledger round (see \$spec-verify -- findings with V-N IDs + Evidence).
+If implementation just finished: run the closing verification now (four dimensions) and write the ledger round (see \$spec-verify -- findings with V-N IDs + Evidence).
 If you are deliberately pausing (stuck self-check / awaiting a user decision): say so explicitly to the user, then stop."

@@ -37,10 +37,34 @@ try {
     $changesDir = Join-Path $cwd 'spec' | Join-Path -ChildPath 'changes'
     if (-not (Test-Path $changesDir)) { exit 0 }
 
+    # Skip suspended changes and self-auditing tier dirs -- quick/fix/loop without proposal.md
+    # (precedence: proposal.md wins -- an upgraded tier dir counts as a normal full change).
+    # Without this filter an unarchived quick/fix/loop/paused dir inflates the count and
+    # silences the single-active window.
     $changes = Get-ChildItem $changesDir -Directory -ErrorAction SilentlyContinue |
-               Where-Object { $_.Name -ne 'archive' }
+               Where-Object {
+                   $_.Name -ne 'archive' -and
+                   -not (Test-Path (Join-Path $_.FullName '.paused')) -and
+                   -not ((Test-Path (Join-Path $_.FullName 'quick.md')) -and -not (Test-Path (Join-Path $_.FullName 'proposal.md'))) -and
+                   -not (((Test-Path (Join-Path $_.FullName 'fix.md')) -or (@(Get-ChildItem -Path $_.FullName -Directory -ErrorAction SilentlyContinue | Where-Object { Test-Path (Join-Path $_.FullName 'fix.md') }).Count -gt 0)) -and -not (Test-Path (Join-Path $_.FullName 'proposal.md'))) -and
+                   -not ((Test-Path (Join-Path $_.FullName 'loop.md')) -and -not (Test-Path (Join-Path $_.FullName 'proposal.md')))
+               }
 
-    # Only nudge in the unambiguous single-active-change window
+    # Current-change pointer: when spec/changes/.current names a member of the active list,
+    # the reminder binds to that change. Dangling/invalid pointer = silently ignored
+    # (fail-open family), falling back to single-active.
+    $changes = @($changes)
+    $currentFile = Join-Path $changesDir '.current'
+    if ($changes.Count -gt 1 -and (Test-Path $currentFile)) {
+        $cur = (Get-Content $currentFile -TotalCount 1 -ErrorAction SilentlyContinue)
+        if ($cur) { $cur = $cur.Trim() }
+        if ($cur) {
+            $hit = @($changes | Where-Object { $_.Name -eq $cur })
+            if ($hit.Count -eq 1) { $changes = $hit }
+        }
+    }
+
+    # Only nudge with an unambiguous target (the pointed change, or the single active one)
     if (-not $changes -or $changes.Count -ne 1) { exit 0 }
 
     $change = $changes[0]
@@ -65,7 +89,7 @@ try {
     $lines = @(
         "SDD: change '$($change.Name)' has an approved proposal but no implementation-round verification (verify.md absent, or holds only the round-0 critique).",
         'If implementation is unfinished (unchecked tasks.md items / What items not landed): CONTINUE implementing -- do not end the turn.',
-        'If implementation just finished: run the closing three-dimension verification now and write the ledger round (see $spec-verify -- findings with V-N IDs + Evidence).',
+        'If implementation just finished: run the closing verification now (four dimensions) and write the ledger round (see $spec-verify -- findings with V-N IDs + Evidence).',
         'If you are deliberately pausing (stuck self-check / awaiting a user decision): say so explicitly to the user, then stop.'
     )
     Block ($lines -join "`n")

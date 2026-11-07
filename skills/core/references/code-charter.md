@@ -35,6 +35,18 @@ At boundaries that **genuinely can fail** — external services / network / untr
 
 Returning an empty list / 0 / a default / a mock to "make it look like nothing crashed" is the same crime as patching a test to return true.
 
+## 6. Derive, don't mint — requirement nouns get no automatic code entity
+
+A requirement concept is carried by an EXISTING field / method / endpoint whenever one exists — derive from it (e.g. "单据类型" derives from an existing type column; "撤销" reuses the existing revoke method), never mint a parallel carrier for the same concept. Minting is legal only with the empty-handed responsibility search on record: in a change carrying index.md, cite its `## Carriers` minting row; in tiers without an index (fix batches, loop rounds), state the search — where you looked, by responsibility — in the tier's own record (F-N entry / round log) before creating the entity.
+
+## 7. Extraction needs ≥2 call sites
+
+Don't extract a method/function for a single call site — inline it. The exception is a body whose size or complexity genuinely self-justifies isolation (state the reason). "Cleanliness" with one caller is indirection, not abstraction.
+
+## 8. Comments state function, not process — `DEVLOG:`-tag the exceptions
+
+A comment is written for the NEXT reader: what this code is, why it exists, what constraint it carries. Change-narrative comments ("switched to X", "fixed the earlier bug", "per requirement item 3") belong in spec artifacts and commit messages, never in merged code. During implementation a process marker IS legal — but ONLY with the uniform `DEVLOG:` tag (`// DEVLOG: mock until backend lands`); an untagged process comment is a violation from the first keystroke, because untagged markers can't be swept mechanically. **Before the coding phase ends the DEVLOG count goes to zero**: each tag is rewritten as a function comment (intent / constraint) or deleted — the closing sweep is one command (`grep DEVLOG` over the diff → 0), and a residual tag is a charter finding for the verifier.
+
 ---
 
 **Overall test**: would deleting this safety net / old path / default value make a **real bug surface loudly**? Yes → it's hiding a bug for you, delete it. Would it make a **real boundary lose its resilience**? Yes → keep it, but add log + reporting.

@@ -36,25 +36,53 @@ try {
 
     $changesDir = Join-Path $cwd 'spec' | Join-Path -ChildPath 'changes'
     if (-not (Test-Path $changesDir)) {
-        Block 'SDD: no spec/changes/ directory. Start with $spec-research -> $spec-propose'
+        Block 'SDD: no spec/changes/ directory. Start with $spec-research -> $spec-propose
+(note: hooks resolve spec/ at the session cwd -- a spec/ tree anywhere else (a subdirectory, another worktree, the main repo) is invisible to every gate: move it to this root, or relaunch the session where that tree lives)'
     }
 
+    # Skip suspended changes and self-auditing tier dirs -- quick/fix/loop without proposal.md
+    # (precedence: proposal.md wins -- an upgraded tier dir counts as a normal full change).
     $changes = Get-ChildItem $changesDir -Directory -ErrorAction SilentlyContinue |
-               Where-Object { $_.Name -ne 'archive' }
+               Where-Object {
+                   $_.Name -ne 'archive' -and
+                   -not (Test-Path (Join-Path $_.FullName '.paused')) -and
+                   -not ((Test-Path (Join-Path $_.FullName 'quick.md')) -and -not (Test-Path (Join-Path $_.FullName 'proposal.md'))) -and
+                   -not (((Test-Path (Join-Path $_.FullName 'fix.md')) -or (@(Get-ChildItem -Path $_.FullName -Directory -ErrorAction SilentlyContinue | Where-Object { Test-Path (Join-Path $_.FullName 'fix.md') }).Count -gt 0)) -and -not (Test-Path (Join-Path $_.FullName 'proposal.md'))) -and
+                   -not ((Test-Path (Join-Path $_.FullName 'loop.md')) -and -not (Test-Path (Join-Path $_.FullName 'proposal.md')))
+               }
+
+    # Current-change pointer: when spec/changes/.current names a member of the active list,
+    # that member IS the target. Dangling/paused/invalid pointer = silently ignored
+    # (fail-open family), falling back to the single-active rule.
+    $changes = @($changes)
+    $currentFile = Join-Path $changesDir '.current'
+    if ($changes.Count -gt 1 -and (Test-Path $currentFile)) {
+        $cur = (Get-Content $currentFile -TotalCount 1 -ErrorAction SilentlyContinue)
+        if ($cur) { $cur = $cur.Trim() }
+        if ($cur) {
+            $hit = @($changes | Where-Object { $_.Name -eq $cur })
+            if ($hit.Count -eq 1) { $changes = $hit }
+        }
+    }
 
     if (-not $changes -or $changes.Count -eq 0) {
-        Block 'SDD: no active change. Start with $spec-research -> $spec-propose'
+        Block "SDD: no active change under $changesDir (.paused / quick / fix / loop dirs do not count). Start with `$spec-research -> `$spec-propose. Already have one? It may sit in a DIFFERENT spec tree (another worktree / the main repo / a subproject) -- hooks only see the session cwd: move it here, or relaunch there"
     }
 
     if ($changes.Count -gt 1) {
         $names = ($changes | ForEach-Object { $_.Name }) -join ', '
-        Block "SDD: multiple active changes detected ($names). This workflow assumes a single active change -- `$spec-archive the rest (or clean them up) before `$spec-apply (otherwise a draft change blocks the approved one)"
+        Block "SDD: multiple active changes detected under $changesDir ($names) and no current pointer selects one. Pick the target with `$spec-resume <name> (writes spec/changes/.current), or `$spec-archive / `$spec-stash the rest before `$spec-apply"
     }
 
     foreach ($change in $changes) {
         $proposalPath = Join-Path $change.FullName 'proposal.md'
         if (-not (Test-Path $proposalPath)) {
-            Block "SDD: $($change.Name) is missing proposal.md. Run `$spec-propose first"
+            # Self-diagnosis: name what the gate actually saw, so a change created in a
+            # different spec tree (worktree / main repo / subproject) is recognizable (0.6.4).
+            $found = (Get-ChildItem $change.FullName -Force -Name -ErrorAction SilentlyContinue) -join ' '
+            if ([string]::IsNullOrWhiteSpace($found)) { $found = '(empty)' }
+            Block ("SDD: change '$($change.Name)' is missing proposal.md -- run `$spec-propose first.`n" +
+                   "(gate inspected $changesDir; '$($change.Name)' holds: $found. Not the change you meant? Yours likely sits in a DIFFERENT spec tree -- another worktree / the main repo / a subproject: hooks only see the session cwd; move it here, or relaunch the session where it lives)")
         }
 
         $content = Get-Content $proposalPath -Raw -Encoding UTF8

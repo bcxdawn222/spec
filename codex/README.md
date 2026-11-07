@@ -86,9 +86,15 @@ the Claude Code plugin — see the [root README](../README.md).
 
 ## What's different on Codex (known degradations)
 
-- **`$spec-ask` is prose-only**: Codex has no structured multiple-choice UI
-  (AskUserQuestion), so interrogation happens as numbered options in plain text, one
-  question at a time.
+- **`$spec-ask` structured questions need an experimental flag**: `codex features
+  enable default_mode_request_user_input` (takes effect on a new task) gives sessions
+  a `request_user_input` tool, and `$spec-ask` then asks every question through it
+  (single-select, ≤3 options per call). Wider option sets are compressed — recommended
+  + strongest alternative + skip, the rest pickable by a text reply — or narrowed
+  across two calls; multi-select questions decompose into per-candidate include/skip
+  calls. Plain text is only the no-flag fallback, after a one-line tip naming the
+  flag: independent questions batched into a single message with lettered options and
+  a one-line combined reply (`1A 3C`; omitted questions take the recommended option).
 - **No heterogeneous peer review**: the Claude-side `--codex` flag (Codex as an
   adversarial second opinion) has no equivalent here — Codex cannot be its own
   heterogeneous reviewer.

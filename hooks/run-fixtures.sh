@@ -109,6 +109,11 @@ printf '# R\n\n## Open [TBD]\n(none)\n\n## Decided\n- [DEC-1] chosen | source [T
 run_case tbd-decided-only-allows   check-tbd allow "$P" "$(json '/spec:propose')"
 run_case tbd-mention-not-invoke    check-tbd allow "$P" "$(json 'explain /spec:propose please')"
 
+# regression: [TBD-N] provenance citations OUTSIDE ## Open (Practices/Constraints) must not block
+P=$(mkproj tbd-prov); mkdir -p "$P/spec/changes/c"
+printf '# R\n\n## Practices\n- pattern X (drove [TBD-1])\n\n## Constraints\n- limit Y, see [TBD-2]\n\n## Open [TBD]\n(none)\n\n## Decided\n- [DEC-1] chosen | source [TBD-1] | reason\n' > "$P/spec/changes/c/research.md"
+run_case tbd-provenance-ref-allows check-tbd allow "$P" "$(json '/spec:propose')"
+
 # ---- check-archive ----
 P=$(mkproj arch-unapproved); mkdir -p "$P/spec/changes/c"
 printf '%s' "$FULL_PROPOSAL" > "$P/spec/changes/c/proposal.md"
@@ -388,6 +393,280 @@ assert_resume_rebind() {
 }
 run_assert loop-resume-rebind-cmd assert_resume_rebind
 
+# ---- 0.5.6 flow-elasticity: .paused / quick.md skip filters + archive quick branch ----
+
+# paused frees the slot: paused dir + one active full change -> gates see exactly one
+P=$(mkproj flex-paused-active); mkdir -p "$P/spec/changes/parked" "$P/spec/changes/live"
+printf '%s' "$FULL_PROPOSAL" > "$P/spec/changes/parked/proposal.md"
+printf 'paused: 2026-08-22 | reason: test\n' > "$P/spec/changes/parked/.paused"
+printf '%s' "$FULL_PROPOSAL" > "$P/spec/changes/live/proposal.md"
+run_case gate-paused-plus-active-allows check-gate allow "$P" "$(json '/spec:apply')"
+
+# a paused-only project has NO active change (paused must not count)
+P=$(mkproj flex-paused-only); mkdir -p "$P/spec/changes/parked"
+printf '%s' "$FULL_PROPOSAL" > "$P/spec/changes/parked/proposal.md"
+printf 'paused: 2026-08-22 | reason: test\n' > "$P/spec/changes/parked/.paused"
+run_case gate-only-paused-blocks   check-gate block "$P" "$(json '/spec:apply')"
+
+# quick coexists: quick-only dir + active full change -> apply on the full change allowed
+P=$(mkproj flex-quick-active); mkdir -p "$P/spec/changes/hotfix" "$P/spec/changes/live"
+printf '# Quick: hotfix\n\nstatus: in-flight\n\n## Ask\n> q\n' > "$P/spec/changes/hotfix/quick.md"
+printf '%s' "$FULL_PROPOSAL" > "$P/spec/changes/live/proposal.md"
+run_case gate-quick-plus-active-allows check-gate allow "$P" "$(json '/spec:apply')"
+
+# precedence: an upgraded quick dir (quick.md + proposal.md) is a NORMAL full change
+P=$(mkproj flex-upgraded); mkdir -p "$P/spec/changes/grown"
+printf '# Quick: grown\n\nstatus: done\n' > "$P/spec/changes/grown/quick.md"
+printf '%s' "$FULL_PROPOSAL" > "$P/spec/changes/grown/proposal.md"
+run_case gate-upgraded-quick-counts check-gate allow "$P" "$(json '/spec:apply')"
+
+# tbd gate: same filter -- a paused dir with open TBDs must not block the live change
+P=$(mkproj flex-tbd); mkdir -p "$P/spec/changes/parked" "$P/spec/changes/live"
+printf 'paused: 2026-08-22 | reason: test\n' > "$P/spec/changes/parked/.paused"
+printf '# R\n\n## Open [TBD]\n- [TBD-9] x\n' > "$P/spec/changes/parked/research.md"
+printf '# R\n\n## Open [TBD]\n(none)\n\n## Decided\n- [DEC-1] chosen | source [TBD-1] | reason\n' > "$P/spec/changes/live/research.md"
+run_case tbd-paused-plus-active-allows check-tbd allow "$P" "$(json '/spec:propose')"
+
+# reminder skips a paused change entirely (would otherwise nag forever)
+P=$(mkproj flex-rem-paused); mkdir -p "$P/spec/changes/parked"
+printf '%s\n<!-- APPROVED: 2026-08-22 12:00 -->\n' "$FULL_PROPOSAL" > "$P/spec/changes/parked/proposal.md"
+printf 'paused: 2026-08-22 | reason: test\n' > "$P/spec/changes/parked/.paused"
+run_case reminder-paused-skipped-allows check-verify-reminder allow "$P" "$(json_stop false)"
+
+# reminder window survives a coexisting quick dir (count filter -- the N-3 refutation pin)
+P=$(mkproj flex-rem-quick); mkdir -p "$P/spec/changes/hotfix" "$P/spec/changes/live"
+printf '# Quick: hotfix\n\nstatus: in-flight\n' > "$P/spec/changes/hotfix/quick.md"
+printf '%s\n<!-- APPROVED: 2026-08-22 12:00 -->\n' "$FULL_PROPOSAL" > "$P/spec/changes/live/proposal.md"
+run_case reminder-quick-coexist-nudges check-verify-reminder block "$P" "$(json_stop false)"
+
+# archive quick branch: done + Evidence -> allow; in-flight -> block; force overrides
+QUICK_DONE='# Quick: h
+
+status: done
+date: 2026-08-22
+
+## Ask
+> fix the label
+
+## Done
+- x
+
+## Concerns
+none
+
+## Evidence
+verifier: grep -> 0 findings
+'
+P=$(mkproj flex-arch-qdone); mkdir -p "$P/spec/changes/h"
+printf '%s' "$QUICK_DONE" > "$P/spec/changes/h/quick.md"
+run_case archive-quick-done-allows check-archive allow "$P" "$(json '/spec:archive')"
+
+P=$(mkproj flex-arch-qflight); mkdir -p "$P/spec/changes/h"
+printf '%s' "$QUICK_DONE" | sed 's/^status: done$/status: in-flight/' > "$P/spec/changes/h/quick.md"
+run_case archive-quick-inflight-blocks check-archive block "$P" "$(json '/spec:archive')"
+run_case archive-quick-force-overrides check-archive allow "$P" "$(json '/spec:archive force')"
+
+# precedence at archive: an upgraded dir is audited by APPROVED, not by the quick branch
+P=$(mkproj flex-arch-upg); mkdir -p "$P/spec/changes/grown"
+printf '%s' "$QUICK_DONE" > "$P/spec/changes/grown/quick.md"
+printf '%s' "$FULL_PROPOSAL" > "$P/spec/changes/grown/proposal.md"
+run_case archive-upgraded-quick-audits-approved check-archive block "$P" "$(json '/spec:archive')"
+
+# ---- fix stream tier (0.6.0) ----
+
+# fix coexists: fixes dir + active full change -> apply/propose on the full change allowed
+P=$(mkproj fix-active); mkdir -p "$P/spec/changes/fixes" "$P/spec/changes/live"
+printf '# Fixes\n\nstatus: open\n\n## F-1: x\n\n### Ask\n> q\n' > "$P/spec/changes/fixes/fix.md"
+printf '%s' "$FULL_PROPOSAL" > "$P/spec/changes/live/proposal.md"
+printf '# R\n\n## Open [TBD]\n(none)\n\n## Decided\n- [DEC-1] chosen | source [TBD-1] | reason\n' > "$P/spec/changes/live/research.md"
+run_case gate-fix-plus-active-allows check-gate allow "$P" "$(json '/spec:apply')"
+run_case tbd-fix-plus-active-allows check-tbd allow "$P" "$(json '/spec:propose')"
+
+# reminder window survives a coexisting fixes dir (count filter)
+P=$(mkproj fix-rem); mkdir -p "$P/spec/changes/fixes" "$P/spec/changes/live"
+printf '# Fixes\n\nstatus: open\n\n## F-1: x\n' > "$P/spec/changes/fixes/fix.md"
+printf '%s\n<!-- APPROVED: 2026-08-24 12:00 -->\n' "$FULL_PROPOSAL" > "$P/spec/changes/live/proposal.md"
+run_case reminder-fix-coexist-nudges check-verify-reminder block "$P" "$(json_stop false)"
+
+# ship preconditions: no batch -> block; empty batch -> block; entries + status open -> ALLOW
+# (first-ship deadlock canary: the gate must NEVER require status: shipped -- ship writes it)
+P=$(mkproj fix-ship-none)
+run_case ship-no-batch-blocks check-archive block "$P" "$(json '/spec:ship')"
+
+P=$(mkproj fix-ship-empty); mkdir -p "$P/spec/changes/fixes"
+printf '# Fixes\n\nstatus: open\n' > "$P/spec/changes/fixes/fix.md"
+run_case ship-empty-batch-blocks check-archive block "$P" "$(json '/spec:ship')"
+
+FIX_OPEN='# Fixes
+
+status: open
+opened: 2026-08-24
+
+## F-1: fix the label
+date: 2026-08-24
+files: src/a.js
+
+### Ask
+> fix it
+
+### Root cause
+wrong key
+
+### Self-check
+npm test -> exit 0
+
+### Concerns
+none
+'
+P=$(mkproj fix-ship-ok); mkdir -p "$P/spec/changes/fixes"
+printf '%s' "$FIX_OPEN" > "$P/spec/changes/fixes/fix.md"
+run_case ship-with-entries-allows check-archive allow "$P" "$(json '/spec:ship')"
+
+# upgraded fixes dir: ship refuses (proposal.md wins -> full-change semantics)
+P=$(mkproj fix-ship-upg); mkdir -p "$P/spec/changes/fixes"
+printf '%s' "$FIX_OPEN" > "$P/spec/changes/fixes/fix.md"
+printf '%s' "$FULL_PROPOSAL" > "$P/spec/changes/fixes/proposal.md"
+run_case ship-upgraded-fixes-blocks check-archive block "$P" "$(json '/spec:ship')"
+
+# archive fix branch: shipped + Audit -> allow; open -> block; force overrides
+FIX_SHIPPED='# Fixes
+
+status: shipped
+opened: 2026-08-24
+
+## F-1: fix the label
+date: 2026-08-24
+files: src/a.js
+
+### Ask
+> fix it
+
+### Root cause
+wrong key
+
+### Self-check
+npm test -> exit 0
+
+### Concerns
+none
+
+## Audit
+verifier round: npm test -> exit 0; 0 findings
+'
+P=$(mkproj fix-arch-shipped); mkdir -p "$P/spec/changes/fixes"
+printf '%s' "$FIX_SHIPPED" > "$P/spec/changes/fixes/fix.md"
+run_case archive-fix-shipped-allows check-archive allow "$P" "$(json '/spec:archive')"
+
+P=$(mkproj fix-arch-open); mkdir -p "$P/spec/changes/fixes"
+printf '%s' "$FIX_OPEN" > "$P/spec/changes/fixes/fix.md"
+run_case archive-fix-unshipped-blocks check-archive block "$P" "$(json '/spec:archive')"
+run_case archive-fix-force-overrides check-archive allow "$P" "$(json '/spec:archive force')"
+
+# precedence at archive: an upgraded fixes dir is audited by APPROVED, not the fix branch
+P=$(mkproj fix-arch-upg); mkdir -p "$P/spec/changes/fixes"
+printf '%s' "$FIX_SHIPPED" > "$P/spec/changes/fixes/fix.md"
+printf '%s' "$FULL_PROPOSAL" > "$P/spec/changes/fixes/proposal.md"
+run_case archive-upgraded-fix-audits-approved check-archive block "$P" "$(json '/spec:archive')"
+
+
+# ---- daily fix batches (fixes/<YYYY-MM-DD>/): gates exempt the parent, ship/archive scan every batch ----
+
+# dated batch only (no flat fix.md): gates still exempt the fixes parent
+P=$(mkproj fix-dated-active); mkdir -p "$P/spec/changes/fixes/2026-09-21" "$P/spec/changes/live"
+printf '%s' "$FIX_OPEN" > "$P/spec/changes/fixes/2026-09-21/fix.md"
+printf '%s' "$FULL_PROPOSAL" > "$P/spec/changes/live/proposal.md"
+printf '# R\n\n## Open [TBD]\n(none)\n\n## Decided\n- [DEC-1] chosen | source [TBD-1] | reason\n' > "$P/spec/changes/live/research.md"
+run_case gate-dated-fix-plus-active-allows check-gate allow "$P" "$(json '/spec:apply')"
+run_case tbd-dated-fix-plus-active-allows check-tbd allow "$P" "$(json '/spec:propose')"
+
+P=$(mkproj fix-dated-rem); mkdir -p "$P/spec/changes/fixes/2026-09-21" "$P/spec/changes/live"
+printf '%s' "$FIX_OPEN" > "$P/spec/changes/fixes/2026-09-21/fix.md"
+printf '%s\n<!-- APPROVED: 2026-08-24 12:00 -->\n' "$FULL_PROPOSAL" > "$P/spec/changes/live/proposal.md"
+run_case reminder-dated-fix-coexist-nudges check-verify-reminder block "$P" "$(json_stop false)"
+
+# ship: entries in a dated batch satisfy the precondition; all-empty dated batches block
+P=$(mkproj fix-ship-dated); mkdir -p "$P/spec/changes/fixes/2026-09-21"
+printf '%s' "$FIX_OPEN" > "$P/spec/changes/fixes/2026-09-21/fix.md"
+run_case ship-dated-batch-allows check-archive allow "$P" "$(json '/spec:ship')"
+
+P=$(mkproj fix-ship-dated-empty); mkdir -p "$P/spec/changes/fixes/2026-09-21"
+printf '# Fixes\n\nstatus: open\n' > "$P/spec/changes/fixes/2026-09-21/fix.md"
+run_case ship-dated-empty-blocks check-archive block "$P" "$(json '/spec:ship')"
+
+# direct archive of the fixes tree: every dated batch shipped -> allow; any open -> block
+P=$(mkproj fix-arch-dated-ok); mkdir -p "$P/spec/changes/fixes/2026-09-20" "$P/spec/changes/fixes/2026-09-21"
+printf '%s' "$FIX_SHIPPED" > "$P/spec/changes/fixes/2026-09-20/fix.md"
+printf '%s' "$FIX_SHIPPED" > "$P/spec/changes/fixes/2026-09-21/fix.md"
+run_case archive-dated-batches-shipped-allows check-archive allow "$P" "$(json '/spec:archive')"
+
+P=$(mkproj fix-arch-dated-open); mkdir -p "$P/spec/changes/fixes/2026-09-20" "$P/spec/changes/fixes/2026-09-21"
+printf '%s' "$FIX_SHIPPED" > "$P/spec/changes/fixes/2026-09-20/fix.md"
+printf '%s' "$FIX_OPEN" > "$P/spec/changes/fixes/2026-09-21/fix.md"
+run_case archive-dated-batch-open-blocks check-archive block "$P" "$(json '/spec:archive')"
+
+# ---- 0.6.4: loop dirs join the skip filter (field finding: a legit loop change was
+#      counted as an active full change and blocked /spec:propose as "missing research.md") ----
+
+# loop coexists: running loop dir + active full change -> propose/apply on the full change allowed
+P=$(mkproj loop-coexist); mkdir -p "$P/spec/changes/g" "$P/spec/changes/live"
+printf '%s' "$LOOP_RUNNING" > "$P/spec/changes/g/loop.md"
+printf '%s' "$FULL_PROPOSAL" > "$P/spec/changes/live/proposal.md"
+printf '# R\n\n## Open [TBD]\n(none)\n\n## Decided\n- [DEC-1] chosen | source [TBD-1] | reason\n' > "$P/spec/changes/live/research.md"
+run_case gate-loop-plus-active-allows check-gate allow "$P" "$(json '/spec:apply')"
+run_case tbd-loop-plus-active-allows check-tbd allow "$P" "$(json '/spec:propose')"
+
+# reminder window survives a coexisting loop dir (count filter)
+P=$(mkproj loop-rem-coexist); mkdir -p "$P/spec/changes/g" "$P/spec/changes/live"
+printf '%s' "$LOOP_RUNNING" > "$P/spec/changes/g/loop.md"
+printf '%s\n<!-- APPROVED: 2026-09-03 12:00 -->\n' "$FULL_PROPOSAL" > "$P/spec/changes/live/proposal.md"
+run_case reminder-loop-coexist-nudges check-verify-reminder block "$P" "$(json_stop false)"
+
+# precedence: an upgraded loop dir (loop.md + proposal.md) is a NORMAL full change
+P=$(mkproj loop-upgraded); mkdir -p "$P/spec/changes/grown"
+printf '%s' "$LOOP_RUNNING" > "$P/spec/changes/grown/loop.md"
+printf '%s' "$FULL_PROPOSAL" > "$P/spec/changes/grown/proposal.md"
+run_case gate-upgraded-loop-counts check-gate allow "$P" "$(json '/spec:apply')"
+
+# ---- current-change pointer (spec/changes/.current): hit / dangling fallback /
+#      paused-target fallback / reminder binding ----
+
+P=$(mkproj ptr-hit); mkdir -p "$P/spec/changes/a" "$P/spec/changes/b"
+printf '# R\n\n## Open [TBD]\n- [TBD-1] x\n' > "$P/spec/changes/a/research.md"
+printf '# R\n\n## Open [TBD]\n(none)\n\n## Decided\n- [DEC-1] ok\n' > "$P/spec/changes/b/research.md"
+printf '%s' "$FULL_PROPOSAL" > "$P/spec/changes/b/proposal.md"
+printf 'b\n' > "$P/spec/changes/.current"
+run_case tbd-pointer-selects-target check-tbd allow "$P" "$(json '/spec:propose')"
+run_case gate-pointer-selects-target check-gate allow "$P" "$(json '/spec:apply')"
+
+# dangling pointer (e.g. after archiving the pointed change): multi remains -> fallback block
+P=$(mkproj ptr-dangle-multi); mkdir -p "$P/spec/changes/a" "$P/spec/changes/b"
+printf '# R\n\n## Open [TBD]\n(none)\n' > "$P/spec/changes/a/research.md"
+printf '# R\n\n## Open [TBD]\n(none)\n' > "$P/spec/changes/b/research.md"
+printf 'ghost\n' > "$P/spec/changes/.current"
+run_case tbd-pointer-dangling-multi-blocks check-tbd block "$P" "$(json '/spec:propose')"
+
+# dangling pointer with a single active -> falls back to single-active, allowed
+P=$(mkproj ptr-dangle-one); mkdir -p "$P/spec/changes/only"
+printf '%s' "$FULL_PROPOSAL" > "$P/spec/changes/only/proposal.md"
+printf 'ghost\n' > "$P/spec/changes/.current"
+run_case gate-pointer-dangling-single-falls-back check-gate allow "$P" "$(json '/spec:apply')"
+
+# pointer at a paused dir (not in the active list) -> ignored, single-active fallback
+P=$(mkproj ptr-paused); mkdir -p "$P/spec/changes/parked" "$P/spec/changes/live"
+printf 'paused: 2026-09-10 | reason: t\n' > "$P/spec/changes/parked/.paused"
+printf '# R\n\n## Open [TBD]\n(none)\n\n## Decided\n- [DEC-1] ok\n' > "$P/spec/changes/live/research.md"
+printf 'parked\n' > "$P/spec/changes/.current"
+run_case tbd-pointer-paused-target-falls-back check-tbd allow "$P" "$(json '/spec:propose')"
+
+# reminder binds to the pointed change: pointed=approved-no-ledger -> nudge; pointed=other -> silent
+P=$(mkproj ptr-rem); mkdir -p "$P/spec/changes/appr" "$P/spec/changes/draft"
+printf '%s\n<!-- APPROVED: 2026-09-10 12:00 -->\n' "$FULL_PROPOSAL" > "$P/spec/changes/appr/proposal.md"
+printf '# R\nwip\n' > "$P/spec/changes/draft/research.md"
+printf 'appr\n' > "$P/spec/changes/.current"
+run_case reminder-pointer-binds-nudge check-verify-reminder block "$P" "$(json_stop false)"
+printf 'draft\n' > "$P/spec/changes/.current"
+run_case reminder-pointer-other-allows check-verify-reminder allow "$P" "$(json_stop false)"
+
 # ---- Claude-specific extras ----
 
 # V-2: non-ASCII project path — gate must still bite (env route is encoding-immune)
@@ -428,6 +707,22 @@ if [ -f "$CODEX_RUNNER" ]; then
     done
 else
     echo "WARN: codex runner not found -- scenario-name sync skipped (repo checkout only)"
+fi
+
+# reverse direction (0.5.6, ledger V-4): every Claude-side named case must have a codex
+# mirror too -- except the declared Claude-only set (host-specific mechanics with no codex
+# equivalent). A new Claude-only case belongs in this list DELIBERATELY, never by omission.
+if [ -f "$CODEX_RUNNER" ]; then
+    CLAUDE_ONLY="unicode-path-blocks loop-git-status-fails-reinjects loop-git-status-fails-fp-na"
+    for n in $(sed -n -e 's/^run_\(driver_\)\{0,1\}case[[:space:]]\{1,\}\([a-z0-9-]\{1,\}\).*/\2/p' \
+                      -e 's/^run_assert[[:space:]]\{1,\}\([a-z0-9-]\{1,\}\).*/\1/p' "$0"); do
+        case " $CLAUDE_ONLY " in *" $n "*) continue ;; esac
+        if grep -Eq "run_((driver_)?case|assert) $n " "$CODEX_RUNNER"; then
+            PASS=$((PASS+1)); echo "PASS  scenario-sync-rev:$n"
+        else
+            FAIL=$((FAIL+1)); echo "FAIL  scenario-sync-rev:$n  Claude case has no codex mirror"
+        fi
+    done
 fi
 
 echo "----"

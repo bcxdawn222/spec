@@ -14,7 +14,7 @@ Never edit `.loop-state` by hand or by model — the driver rewrites it wholesal
 
 ## loop.md format
 
-Frontmatter values are **plain scalars on their own line** — the template below is copy-safe as-is. (Since 0.5.1 the driver also tolerates a trailing `# comment` on a value line, but the canonical form is bare; the 0.5.0 driver silently ignored ledgers whose values carried inline comments, which is why the template no longer shows any.)
+Frontmatter values are **plain scalars on their own line** — the template below is copy-safe as-is. (A trailing `# comment` on a value line is tolerated, but the canonical form is bare.)
 
 ```markdown
 ---
@@ -73,7 +73,7 @@ tree_fp_history=<csv>      # worktree fingerprint at each injection (na = git un
 | Resume | `/spec:loop` | set status back to `running` + **re-bind the session_id line** in `.loop-state` (the documented awk one-liner in the loop command — without it the session guard silently ignores every Stop from the new session) → continue from the latest Retrospect's plan |
 | Every turn end | `loop-driver` hook | decision table: corrupt? acceptance met (≤1 cap overrun)? cap? retrospect written? progress? → re-inject or release |
 | Final acceptance | injected by the driver | fresh spec-verifier re-checks every Acceptance item (the loop's ONLY independent audit) → failures unchecked, loop continues fixing; clean audit → report (touchpoint 2) → status: done |
-| Close out | `/spec:archive` | loop.md travels with the change directory; `.loop-state` is deleted; durable Lessons feed knowledge.md |
+| Close out | `/spec:archive` | loop.md travels with the change directory; `.loop-state` is deleted; durable Lessons feed the knowledge base (subdocs + index, per knowledge-spec.md) |
 
 ## Anti-patterns
 

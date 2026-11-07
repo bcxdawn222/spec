@@ -24,16 +24,20 @@ Invoke each phase command in the order below. **If any phase encounters user rej
    - More than 3 interfaces
    - Architecture diagram / data-flow diagram / sequence diagram needed
    - Deep decision argumentation exceeding 300 words
-4. **`$spec-propose`** — write the four-section proposal.md, then **run the critique panel** (propose.md § Critique panel: auto default = necessity chief lens + regression-compat only (testability/performance are manual-pick lenses, available on request at the gate); one refutation round; findings → ledger round 0)
+4. **`$spec-propose`** — write the four-section proposal.md, then **run the critique panel** (propose.md § Critique panel: reuse + fidelity auto-dispatched, plus the compat pass when the proposal touches existing surfaces — its only legal output is landing steps into ## How, never a strike against a What item (a requirement is the premise); performance stays out (user switch, no user mid-flight); extra passes via gate reply; one refutation round; findings → ledger round 0)
    - Before writing, the hook scans research.md for any remaining `[TBD]` placeholders
 5. **HARD GATE — touchpoint 1 of 2** — output the fixed closing block; escalated decisions pinned on top; wait
    - **Write zero code before the user's next command**; satisfied (or silent on the flagged decisions) → `$spec-apply` (apply auto-appends APPROVED; no "reply go" step)
    - The user's reply is an **evaluation**: respond per item adopt / refute (with reason) / partial — one response round, user has final say — then `$spec-revise` → re-emit the gate. **This evaluation loop has no round limit**; it converges on the user's satisfaction, not on a counter
 6. **`$spec-apply`** — implement the code, advancing through proposal / tasks
-   - The pre-command hook verifies the prerequisites (proposal.md with all four sections, single active change); apply itself then appends the APPROVED marker and **echoes the escalated decisions in its first line**
+   - The pre-command hook verifies the prerequisites (proposal.md with all four sections; unambiguous target — current pointer or single active change); apply itself then appends the APPROVED marker and **echoes the escalated decisions in its first line**
 7. **Verification = apply's closing ledger round** — apply already spawned the ONE independent spec-verifier pass and wrote the round; do **NOT** spawn a second back-to-back full pass with zero code changed in between (that was a measured pure duplicate). This step **consumes** that round: open critical/major findings → fix → re-verify (scoped to the open findings + the fix diff, not a fresh full pass), **at most 2 auto-fix rounds** (aligned with the ledger's "open 2+ rounds forces fail" escalation); still-open items are NOT ground down further — they lead the acceptance report
 8. **Acceptance — touchpoint 2 of 2** — report the result (open ledger items first, escalated decisions restated), then wait
    - The user's acceptance feedback is an evaluation: respond per item adopt / refute / partial, then record accepted items as **user-sourced findings** in the ledger (stable V-N) and run a fix round → re-verify. **No round limit** — the loop ends when the user says "archive" → `$spec-archive`
+
+## Cost posture (why this entry point is the cheapest per token)
+
+The whole run shares ONE session prefix — every later phase reads research, the triage record, and the proposal at cache price, and auto-triage removes the mid-flight waits where a cache TTL would otherwise expire; the only remaining pauses are the two touchpoints, by design. Protect that posture: **never compact mid-run** (compaction voids the entire accumulated prefix — if context pressure forces it, the least-bad moments are right after a touchpoint wait begins, never inside a phase), and each phase inherits its stage command's cache rules (apply's executor choice, propose's brief structure) automatically.
 
 ## Commands allowed to jump the queue mid-workflow
 

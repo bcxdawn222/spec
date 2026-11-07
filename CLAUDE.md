@@ -68,10 +68,10 @@ Five hooks, same semantics on both hosts: three UserPromptSubmit gates match the
 
 | Hook | Matches | Blocks / drives when |
 |---|---|---|
-| check-tbd | propose | research.md still has `[TBD-N]` outside `## Decided` |
-| check-gate | apply | proposal.md absent / missing any of the four sections / ≠1 active change. **Deliberately does NOT require the APPROVED marker** — apply appends it after this hook fires (requiring it here = happy-path deadlock, the pre-0.2.3 bug); check-archive enforces it at archive time |
-| check-archive | archive | flow was bypassed (no APPROVED / unchecked tasks / no proposal); **loop changes are audited differently** (loop.md with status: done + fully checked Acceptance = flow honored — no proposal.md exists by design); override = prompt contains `force` or `abandon(ed)` — **matched against the prompt value only**, never the whole stdin JSON (a cwd containing "force" must not bypass; that was finding V-1) |
-| check-verify-reminder | Stop event | single active change has an APPROVED proposal but no verify.md ledger; `stop_hook_active` loop-guards (one nudge per stop) |
+| check-tbd | propose | research.md still has `[TBD-N]` inside `## Open [TBD]` (tokens elsewhere are provenance citations, never counted) |
+| check-gate | apply | proposal.md absent / missing any of the four sections / ambiguous target (multiple active changes with no current pointer selecting one). **Deliberately does NOT require the APPROVED marker** — apply appends it after this hook fires (requiring it here = happy-path deadlock, the pre-0.2.3 bug); check-archive enforces it at archive time |
+| check-archive | archive & ship | flow was bypassed (no APPROVED / unchecked tasks / no proposal); **loop/fix/quick changes are audited differently** (loop.md status: done + checked Acceptance; fix batches: every batch file — flat fixes/fix.md or dated fixes/&lt;date&gt;/fix.md — must be status: shipped + non-empty Audit before the tree archives directly; legacy quick.md status: done + non-empty Evidence — no proposal.md exists by design); **ship invocations get a precondition-only audit** (some batch, flat or dated, has ≥1 entry — never the shipped status ship itself writes); override = prompt contains `force` or `abandon(ed)` — **matched against the prompt value only**, never the whole stdin JSON (a cwd containing "force" must not bypass; that was finding V-1) |
+| check-verify-reminder | Stop event | the targeted change (current pointer, or the single active one) has an APPROVED proposal but no verify.md ledger; `stop_hook_active` loop-guards (one nudge per stop) |
 | loop-driver | Stop event, exactly one `running` loop.md | re-injects the next /spec:loop round via the Stop JSON contract, or releases with a distinct notice (acceptance met → final-acceptance injection, ≤1 cap overrun / round cap / no-progress / refusal-to-retrospect / corrupt ledger). Deliberately **ignores `stop_hook_active`** (it is true on every driver-continued stop) — bounded by ledger state instead |
 
 **Blocking contracts are PER-EVENT, and were probe-verified per host** (they disagree with each other AND with older docs):
@@ -87,7 +87,7 @@ Five hooks, same semantics on both hosts: three UserPromptSubmit gates match the
 | languages | single POSIX sh implementation, all platforms | pwsh + POSIX sh **twin pairs** — the pair is the unit of change |
 | config trap | — | an unknown top-level key in hooks.json (e.g. `description`) makes the whole file **silently ignored** |
 
-Shared conventions across both: **fail-open** (hook internal error / missing `$CLAUDE_PROJECT_DIR` → allow; a hook bug must never block normal flow — for the loop driver, fail-open means the loop *ends*, never that the user is trapped); the APPROVED regex recognizes only the `<!-- APPROVED:` comment form (what apply writes — bare text mentioning the word must not read as approval); check-tbd/check-gate block on >1 active change, check-archive deliberately doesn't (archiving is how you get back to one).
+Shared conventions across both: **fail-open** (hook internal error / missing `$CLAUDE_PROJECT_DIR` → allow; a hook bug must never block normal flow — for the loop driver, fail-open means the loop *ends*, never that the user is trapped); the APPROVED regex recognizes only the `<!-- APPROVED:` comment form (what apply writes — bare text mentioning the word must not read as approval); check-tbd/check-gate resolve their target **pointer-first** (`spec/changes/.current` names one of the active changes → that's the target; pointer absent/dangling → block only when >1 active change), check-archive deliberately never blocks on multiplicity (archiving is how ambiguity gets resolved).
 
 **After ANY gate/driver edit, run BOTH fixture suites and read their own pass counts** (don't trust any number written in prose — including here; counts drift, suite output doesn't): Claude side `sh hooks/run-fixtures.sh` (scenario names synced against the codex set via `run_case`/`run_driver_case`/`run_assert`; run on Git Bash AND `wsl sh hooks/run-fixtures.sh` for a real-POSIX pass — wsl is slow, minutes-level, run it in background). Codex side: `sh codex/hooks/run-fixtures.sh` (both twins). Test a Claude hook in isolation:
 ```sh
@@ -100,26 +100,32 @@ printf '%s' '{"prompt":"/spec:apply","hook_event_name":"UserPromptSubmit"}' | CL
 
 ## Big picture: commands + agents + artifacts
 
-**12 independent commands** (`core/commands/*.md` → both hosts), each re-entrant and re-runnable — the positioning difference from OpenSpec (4 commands all-in-one) / superpowers (rigid 9 steps). Typical flow: `research → ask → (design) → propose → [HARD GATE] → apply → verify → archive`; `workflow` runs end-to-end, `status` reports position, `loop` runs goal-driven autonomous rounds (two touchpoints, Stop-driver enforced).
+**16 independent commands** (`core/commands/*.md` → both hosts), each re-entrant and re-runnable — the positioning difference from OpenSpec (4 commands all-in-one) / superpowers (rigid 9 steps). Typical flow: `research → ask → (design) → propose → [HARD GATE] → apply → verify → archive`; `workflow` runs end-to-end, `status` reports position, `loop` runs goal-driven autonomous rounds (two touchpoints, Stop-driver enforced), `fix` is the streaming light tier (F-N entries into daily batches `spec/changes/fixes/<YYYY-MM-DD>/`; legacy flat `fixes/fix.md` stays recognized; size advisory, never a refusal), `ship` closes ONE batch — named date or the oldest (one independent audit over its diff, run inline when the shipping conversation wrote none of the entries; then archives that batch as `<batch-date>-fixes`, counter-suffixed on collision), `resume` is the **switcher** (writes the current pointer `spec/changes/.current`, unpausing the target if parked), `stash` parks a change (`.paused` marker — optional bookkeeping, not a prerequisite for parallel changes). **Target resolution (all three prompt gates + the Stop reminder)**: pointer-first — a valid `.current` naming an active change selects it; otherwise fall back to the single active change, and block (gates) / stay silent (reminder) when >1. **Active-change counting rule**: dirs carrying `.paused`, or `quick.md`/`fix.md`/`loop.md` without proposal.md, don't count — precedence is "proposal.md presence wins" (an upgraded tier dir is a normal full change; loop joined the filter in 0.6.4 — before that a legit loop dir blocked propose as "missing research.md"); check-archive audits fix batches (flat or dated — every batch file must be `status: shipped` + non-empty Audit before the fixes tree archives directly) and legacy quick dirs by quick.md `status: done` + non-empty Evidence (loop-branch trust model), and gates `/spec:ship` invocations on **preconditions only** (batch exists with ≥1 F-N entry — never the shipped status ship itself writes; the check-gate/apply deadlock lesson applied).
 
 **The HARD GATE mechanism**:
 - propose/revise end by emitting the fixed `<HARD-GATE>` block, then stop. The gate's Changes block is the **explanation layer** (Scenario / Avoided by / Cost per decision, plus "Decided without asking" and "Not in this change") — decision-maker register, never proposal lines pasted verbatim.
 - The `<!-- APPROVED: -->` marker is appended **by apply before it runs** (deliberate invocation = the act of approval) — not by propose, and no "reply go" is needed. Don't reintroduce a "reply go" step.
 - After emitting the HARD GATE, **never write project source**; wait for the next command.
 
-**spec-dev** (dev agent, `core/agents/spec-dev.md`): dispatched by scope at apply time; cross-stack = contract pinned in `design.md ## Interfaces` first, then **two instances dispatched concurrently in one message** (never serial).
+**spec-dev** (dev agent, `core/agents/spec-dev.md`): the cross-stack implementer — contract pinned in `design.md ## Interfaces` first, then **two instances dispatched concurrently in one message** (never serial). **Single-scope changes are implemented by the main conversation directly** (its cached prefix already holds research/proposal/index; a dispatch cold-reads it all for zero parallelism gain), falling back to one dispatched spec-dev only on low context budget or user request.
 
 **spec-verifier** (verification agent): dispatched by verify with a **deliberately fresh context** — the implementing conversation never audits itself. Protocol: Iron Law (no pass without fresh evidence; self-reported success is a claim to re-run), evidence-or-drop (≤3 findings per dimension), refutation phase (a defense must cite a gate decision), ast-grep machine pass over the shipped rule pack (graceful `not run` declaration when absent).
 
-**opt-in flags** (`apply design solid verify`): no extra reference loads by default; `design`→frontend-aesthetics, `solid`→agent-principles §1, `verify`→agent-principles §2.
+**opt-in flags** (`apply design strict`): no extra reference loads by default; `design`→frontend-aesthetics, `strict`→agent-principles §1+§2.
 
 ## Artifact model (generated in the user's project)
 
 ```
 <target-project>/spec/
-├── knowledge.md               project-level durable facts (archive maintains, research reads first; wrong facts get replaced, not contradicted)
+├── knowledge.md               knowledge INDEX — one line per subdoc (`- [kind/domain] file — hook`); wrong facts get replaced, not contradicted
+├── knowledge/                 knowledge subdocs: domain fact files + long-form docs (two-step reads: index first, open only the relevant subdoc; format authority = references/knowledge-spec.md)
+├── changes/.current           current-change pointer (one line, change name) — gates/reminder target it; /spec:resume <name> switches, archive/stash clear it when it points at the closed change
 ├── changes/<name>/            active workspace
 │   ├── research.md  required  Practices + Constraints + Open[TBD] + Decided
+│   ├── index.md     required  R-N verbatim requirement quotes + A-N assets + E-N exemplars (research builds, gate freezes, append-only; legacy changes lack it — consumers fall back)
+│   ├── fix.md       at-fix    streaming light-tier ledger, in daily batches changes/fixes/<YYYY-MM-DD>/ (legacy flat fixes/fix.md recognized; fix tree without proposal.md = light-tier, not counted active; legacy quick.md dirs keep the same treatment)
+│   ├── screens/     at-apply  screenshot evidence map for UI changes (captures + screens.md index; update-in-place, same screen same filename)
+│   ├── .paused      at-stash  suspension marker (dir skipped by gates/reminder; /spec:resume deletes)
 │   ├── research/    optional  discarded-draft pile (snapshots of abandoned directions, revivable)
 │   ├── design.md    optional  architecture / interface contract / key decisions
 │   ├── proposal.md  required  four sections + APPROVED marker; What items carry verify: clauses + Not in this change
@@ -139,6 +145,8 @@ Hooks judge state by scanning non-`archive` directories under `spec/changes/` as
 - **Command frontmatter** (core): `description` + `allowed-tools`. **Agent frontmatter** (core): `name` / `description` / `model: inherit` / `color` / `tools`. The Codex emitter maps/drops these automatically.
 - **references/ read on demand**: agents detect the project stack and read only the relevant reference — never all of them.
 - Public docs (READMEs) carry no iteration narrative and no private project details; process records live in the gitignored `spec/` and in commit messages.
+- **Prohibitions carry their reason and the positive target** (the ban-triplet rule): every "never / don't" in core must state WHY it's banned and WHAT to do instead ("never X, because Y — do Z"). A bare ban invites rationalization (a rule that keeps getting second-guessed is missing its WHY); research on negation effects supports "reason + positive target" over ban-deletion. New text follows this immediately; legacy bans get the triplet added when a file is touched anyway.
+- **core/ states current rules only — no release archaeology**: version pins ("pre-0.6.0", "since 0.5.1") and migration-relative phrasing ("deprecated", "now does X", "no longer") are diffs against prompt versions the model never saw; write every rule as if it were the only rule that ever existed, and leave the history to commit messages. (Prompt-audit finding, 2026-09: all four cruft hits in an otherwise clean surface were this one pattern.)
 
 ## Shared Principles (agents follow by default — see core/skill.md § Shared Principles)
 

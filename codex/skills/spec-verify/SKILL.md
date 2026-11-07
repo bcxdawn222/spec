@@ -1,6 +1,6 @@
 ---
 name: spec-verify
-description: Verifies the current change by dispatching the independent spec-verifier agent (fresh context — the implementing conversation never audits itself) across three dimensions + charter audit. Every run updates the verification ledger spec/changes/<name>/verify.md (stable finding IDs + round diffing + unfixed-escalation). Can be re-run independently.
+description: Verifies the current change by dispatching the independent spec-verifier agent (fresh context — the implementing conversation never audits itself) across four dimensions (Completeness / Correctness / Coherence incl. the charter sub-audit / Reuse & Conformance). Every run updates the verification ledger spec/changes/<name>/verify.md (stable finding IDs + round diffing + unfixed-escalation). Can be re-run independently.
 ---
 <!-- GENERATED from core/commands/verify.md — edit the core file and run node tools/generate.mjs; hand edits will be overwritten -->
 
@@ -8,17 +8,20 @@ description: Verifies the current change by dispatching the independent spec-ver
 
 > Heterogeneous peer review (`--codex`) is not available in this port — Codex cannot be its own heterogeneous reviewer.
 
+This command takes no flags on this host. **Any token in the arguments is flagged to the user as a possible typo** — nothing is silently ignored.
+
 ## Independent verifier (why verify dispatches an agent instead of reviewing inline)
 
 The conversation that just ran `$spec-apply` cannot audit its own output — same context, same blind spots, and "be objective" instructions have near-zero measured effect on self-preference. `$spec-verify` therefore **spawns the spec-verifier agent (defined in ~/.codex/agents/spec-verifier.toml)** (fresh context: it reads only proposal + design + charter + the diff) and keeps the bookkeeping for itself. The same rule binds `$spec-apply`'s closing verification: the review is ALWAYS performed by a spawned spec-verifier, whoever initiates it — the implementing conversation only ever does bookkeeping:
 
+0. **Agent freshness pre-check** (once per session): compare the shipped `${PLUGIN_ROOT}/agents/spec-verifier.toml` with `~/.codex/agents/spec-verifier.toml` — missing → copy + one-line notice; differs → one-line notice + ask once (sync / keep — never clobber a customized agent silently); identical → proceed. Codex cannot bundle agents; without this check a plugin upgrade leaves the OLD verifier running with no error
 1. Spawn spec-verifier with the change name and nothing else — its ignorance of the implementation process is the mechanism, don't "helpfully" brief it
    (`spawn_agent` parameter contract: EITHER `message` — plain text only — OR `items` when attaching skill references, with the task text as a `{type:"text"}` item; both together is rejected)
 2. Transcribe its findings into ledger rows **without softening, dropping, or re-judging them** — format conversion only (one finding = one table row; severity / location / text preserved). Derive the per-dimension pass/fail lines from its findings; its `conclusion` is authoritative and may never be upgraded fail → pass. Disagreement is recorded as a note next to the row, never by deletion
 3. Run the round rules below (diff vs previous round, escalation)
-4. The user overrules a finding as a false positive → distill the generalized lesson (what pattern + why it's acceptable here) into `spec/knowledge.md`, so later rounds and later changes stop repeating it
+4. The user overrules a finding as a false positive → distill the generalized lesson (what pattern + why it's acceptable here) into the knowledge base as a `[ruling]` — a fact line in the rulings subdoc under `spec/knowledge/` with its index line maintained (format → references/knowledge-spec.md; never a flat line into the index) — so later rounds and later changes stop repeating it
 
-## Three-dimension verification framework (executed by the spawned spec-verifier; runs in all modes)
+## Four-dimension verification framework (executed by the spawned spec-verifier; runs in all modes)
 
 ### 1. Completeness
 - Is every item in proposal `## What` implemented? **Check each item against its `verify:` clause** — that clause is the falsifiable acceptance check; a What item with no `verify:` clause → flag it explicitly, don't improvise a pass
@@ -33,9 +36,15 @@ The conversation that just ran `$spec-apply` cannot audit its own output — sam
 ### 3. Coherence
 - Is the change consistent with the decisions in proposal `## How`?
 - **Nothing was done that the proposal did not ask for** (no scope creep)?
+- **Index anchor**: with `index.md` present, every behavioral addition in the diff (validation / required field / value range / permission / endpoint / schema element) must trace to a `refs:` R-N whose quoted text entails it — no citation or a mismatched one = unsourced addition; index absent (legacy change) → declare it and hunt additions against `## What` only
 - **`Not in this change` = exclusion zones**: code changes inside that scope → scope violation, flag it; conversely NEVER flag excluded scope as "missing work" — it is out of scope by decision
 - Does it conform to the coding conventions in the sdd spec-core skill's stack references?
 - **Charter audit** (see the dedicated section below): every fallback / degrade / compat path in the diff must trace to an explicit proposal `## How` / `## Risk` decision
+
+### 4. Reuse & Conformance
+- Each new class / shared util / shared component / page in the diff: does the host codebase already have an equivalent (grep by **responsibility**, not just name)? Does the dev summary's `New creations` field carry the A-N gap citation?
+- **Conformance (new files/pages by default)**: compare each NEW file against its designated E-N exemplar — or 1–2 nearest same-type files in this project when the index names none — on naming / component shape / styling approach / state & error idioms / API-call pattern. Findings need **dual citation** (project convention at file:line with ≥2 occurrences vs the change's deviation at file:line); the project's own code is the sole authority — generic stack references are not citations here, and **consistency outranks elegance** (a deviation toward an objectively cleaner pattern is still a finding; a deliberate convention change is a gate decision). Abstractions the exemplar lacks = additions; conventions it has that the file drops = findings
+- Index absent (legacy change) → declare it, flag blatant duplication only
 
 ## Charter audit (part of Coherence — hunts the dirty-data defect class)
 
@@ -50,6 +59,7 @@ Manual patterns (fallback, Grep the changed files — patterns, not vibes):
 - `|| defaultValue` / ternary fallback chains that mask a failed lookup as a normal result
 - compat flags or branches defaulting to old behavior; "temporary" dual-write / dual-read
 - silent re-route: query A fails → quietly run query B and return its shape as if A succeeded
+- residual `DEVLOG:` tags in the diff (charter clause 8 — process markers not swept to function comments at wrap-up)
 
 Verdict rules:
 
@@ -67,11 +77,19 @@ The fix direction is **replacement or a gate decision** (`$spec-revise how` to a
 === Verify ===
 [independent] Completeness: <pass/fail/partial> - <explanation>
                Correctness:  <pass/fail/partial> - <explanation>
-               Coherence:    <pass/fail/partial> - <explanation>
+               Coherence:    <pass/fail/partial> - <explanation> (incl. charter sub-audit)
+               Reuse&Conf:   <pass/fail/partial> - <explanation>
 
 Evidence (mandatory — one line per check actually executed):
   <command / action> → <exit code or the key output line>
   not run: <check> — <reason>        ← declaring a skip is legal; hiding it is not
+  pending live check: <item>         ← the live-acceptance list — checks that need the running
+                                       app or human eyes; one line each, handed to the user.
+                                       These are a handover, not findings: they NEVER hold
+                                       `conclusion: pass` hostage and never block archiving —
+                                       the machine-verifiable set must be green, the live set
+                                       belongs to the user's own acceptance run, and anything
+                                       that fails there comes back through $spec-fix
 
 Overall: <pass / fail>
 ```
@@ -109,12 +127,12 @@ not run: <check> — <reason>
 
 Round rules:
 1. **Read the previous ledger first** (if present): this run's `round` = previous + 1. **Round 0 is legal**: `$spec-propose`'s critique panel writes its surviving findings as round 0 (stage: propose) before any code exists — the first verify run is then round 1, and it re-checks round 0's open findings like any others
-   - **Fix-round scoping**: when a round exists only to re-check fixes (no new implementation since the last full pass), the verifier's scope is the still-open findings + the fix diff — NOT a fresh full three-dimension pass over the whole change (a full re-pass over unchanged code is a measured pure duplicate). A full pass is warranted only when new implementation landed since the last one
+   - **Fix-round scoping**: when a round exists only to re-check fixes (no new implementation since the last full pass), the verifier's scope is the still-open findings + the fix diff — NOT a fresh full four-dimension pass over the whole change (a full re-pass over unchanged code is a measured pure duplicate). A full pass is warranted only when new implementation landed since the last one
 2. **Re-check every Status=open finding one by one** — fixed → `fixed(rN)`; still open → stays open and **escalates**: a critical/major finding open for 2+ rounds forces `conclusion: fail` and leads the user-facing output
 3. New findings take the next V-N ID; IDs are never reused or renumbered
 4. `wontfix` requires a written reason (inside `Not in this change` / explicit user decision) — silence is not a status
 5. Keep the latest round's Evidence in full; collapse earlier rounds' Evidence to one line each
-6. **User-sourced findings**: acceptance-stage user evaluations enter the ledger too — after the per-item adopt/refute/partial response (one round; the user has the final say), each accepted or insisted-on item becomes a finding row with the next V-N ID and `source: user` noted in the Finding column; an item applied over your refutation is additionally marked `user-override`. They then drive the next fix round exactly like verifier findings. A user-overruled false positive still follows rule "distill the lesson into spec/knowledge.md"
+6. **User-sourced findings**: acceptance-stage user evaluations enter the ledger too — after the per-item adopt/refute/partial response (one round; the user has the final say), each accepted or insisted-on item becomes a finding row with the next V-N ID and `source: user` noted in the Finding column; an item applied over your refutation is additionally marked `user-override`. They then drive the next fix round exactly like verifier findings. A user-overruled false positive still follows rule 4 (distill the lesson into the knowledge base)
 
 The user-facing output ends with the round summary:
 
@@ -131,6 +149,7 @@ When the review fails, **report the specific failure point**:
 | Completeness | List unimplemented items from proposal `## What`; list interfaces in design.md that are not aligned |
 | Correctness | Paste the exact error + file / line number; failing test case + expected vs. actual |
 | Coherence | Where the change diverges from `## How`; scope creep; violations of stack conventions |
+| Reuse & Conformance | The new creation + the existing equivalent it duplicates (file:line), or the E-N exemplar / nearest-neighbor convention dropped (dual citation), or the missing A-N gap citation |
 
 **Guiding principle**: describe the problem; do not prescribe the fix — the remediation path is for the user / main conversation to decide.
 

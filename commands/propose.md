@@ -19,7 +19,7 @@ Stay disciplined at the prompt level too:
 
 1. Read research.md: read `## Decided` + `## Practices` / `## Constraints` (the research conclusions for the current direction; `research/` drafts don't participate unless already revived into research.md)
 2. Read design.md (if it exists)
-3. Write `spec/changes/<name>/proposal.md` — every `## What` item carries a `| verify: <observable behavior / executable check>` clause, and the section closes with a **Not in this change** list (adjacent scope explicitly excluded). Two later stages consume these: `/spec:verify` checks Completeness against the `verify:` clauses; the HARD GATE shows Not-in-this-change as the approval boundary
+3. Write `spec/changes/<name>/proposal.md` — every `## What` item carries `| refs: R-N` (citing the change's index.md `## Requirements`) and a `| verify: <observable behavior / executable check>` clause, and the section closes with a **Not in this change** list (adjacent scope explicitly excluded). **Requirement-fidelity pass before finalizing** (SKILL § Requirement fidelity): every behavioral What item must cite an R-N **whose quote entails it** — no citation, or a citation the quote doesn't cover, makes the item an addition → it goes on the gate's `Unsourced additions` line (the user approves or cuts it; it never slips through as "obviously good"). **The same pass reconciles carriers** (SKILL § Requirement fidelity, carrier level): a What/How item minting a new carrier — field / param / method / endpoint / validation / default — must cite the index's `## Carriers`: an existing carrier mapped but bypassed, or a minting with no C-N row, goes on the same gate line; declared C-N minting rows surface there for approval. Legacy change without index.md → that line reads "legacy change (no index)" and the pass falls back to prose source-tracing (user words / prototype / defect). **Two mechanical pre-checks run in the same pass** (cheap, no critic needed): ① **falsifiability** — for each `verify:` clause ask "could this pass while the feature is broken?"; a clause that cannot fail gets rewritten to an observable behavior before the panel sees it; ② **coverage matrix** — every index R-N must be carried by at least one What item; an uncarried R-N goes on the gate's `Uncovered requirements` line (a source clause silently dropped surfaces at delivery as the user's fault — the matrix is what makes dropping one impossible to do silently). Three later stages consume these: `/spec:verify` checks Completeness against the `verify:` clauses and Coherence against the R-N citations; the HARD GATE shows Unsourced additions + Uncovered requirements + Not-in-this-change as the approval boundary
 4. **Run the critique panel** (section below) — surviving findings land in the verification ledger as round 0
 5. **Emit the HARD GATE closing block**
 
@@ -32,7 +32,7 @@ Stay disciplined at the prompt level too:
 When any one condition holds, **the propose stage generates** `spec/changes/<name>/tasks.md` as well:
 
 - Cross-stack project (in the apply stage, two spec-dev instances — frontend + backend scope — are dispatched concurrently to build in parallel)
-- The task splits into >5 independent subtasks (a large linear change)
+- The task splits into >5 subtasks — dependencies included, a large linear change counts. **Single-executor does not waive this trigger**: the checkbox ledger is the ONLY persistent progress record apply / status / a resumed session have on a long run (owner and deps are optional extras; progress visibility is the point) — skipping it leaves a broken session resuming on git-diff guesswork
 - Multi-executor collaboration (needs the owner field — assigning to different agents / people)
 
 **Simple single-threaded implementation gets none** — apply advances straight down the proposal `## What` list.
@@ -66,26 +66,48 @@ When any one condition holds, **the propose stage generates** `spec/changes/<nam
 
 ## Critique panel (runs after proposal.md is written, before the HARD GATE)
 
-The proposal's quality guard is structural adversarialism, not a smarter single author. Dispatch independent critics **in parallel (one message)**, each with a **fresh context** (it reads only proposal.md + design.md + research.md `## Decided` — never this conversation) and **one locked stance**. Describe the role inline in the dispatch prompt — no dedicated critic agent file ships with sdd.
+The proposal's quality guard is structural adversarialism, not a smarter single author. Dispatch independent critics **in parallel (one message)**, each with a **fresh context** (it reads only proposal.md + design.md + research.md `## Decided` + index.md + the knowledge base's relevant lines — scan `spec/knowledge.md`, open matching `[ruling]`/`[fact]` subdocs; past rulings are refutation ammunition — never this conversation; index.md absent → legacy change: note it in the dispatch, critics proceed without) and **one locked stance**. Describe the role inline in the dispatch prompt — no dedicated critic agent file ships with sdd.
 
-**Lens selection depends on who invoked propose:**
-- **Standalone (manual) `/spec:propose`** — before dispatching, put the lens choice to the user as ONE multi-select question (per SKILL Interrogation rules; self-contained — each option names what that lens catches and what skipping it risks). Options = the four lenses below, with **necessity + regression-compat pre-recommended**. Dispatch exactly what the user picked.
-- **Workflow-invoked (auto orchestration)** — no mid-flight questions (two-touchpoint doctrine): dispatch **necessity + regression-compat only**. The other lenses stay available to the user at the gate ("want a testability/performance pass → say so" is a legal gate reply, answered with a supplementary panel round).
+**Brief structure (cache-aware — independence untouched, only the ordering is constrained)**: every critic brief opens with an **identical shared header** — the artifact read list and any inlined material, verbatim byte-for-byte across all critics — and states the lens's locked stance as the **final section**. Parallel sibling agents share the prompt-prefix cache exactly as far as their briefs stay identical, so common-material-first lets later critics hit the prefix the first one paid for, while stance-last is where they legitimately diverge. With **3+ critics** (performance dispatched), inline proposal.md verbatim into the shared header instead of having each critic read it — three cold reads of the same file cost more than one inlined copy; with 2 critics, per-critic reads stay cheaper (inlining is main-conversation output, priced above input).
 
-| Lens | Locked stance | Auto default |
+**The three lenses map one-to-one onto what an acceptance review actually checks — each asks exactly ONE plain question** (this identity line is the lens's user-facing name on every surface: the roster question, the gate disclosure, the docs; the dense stance text further below is dispatch-brief material, never shown to the user as a description):
+
+| Lens | The one question it asks |
+|---|---|
+| **reuse** | "Does the project already have something for this?" — hunts existing equivalents at every layer (dependencies, middleware, backend code carriers, frontend components, established patterns) and RECOMMENDS them with the trade-off cost; never a mandate |
+| **fidelity** | "Does the proposal match the source — both ways?" — over-building (additions and defensive paths the requirement source never asked for) and under-building (source clauses no What item carries) |
+| **performance** | "Is any of this over-thinking slowing it down?" — the runtime cost of defensive design (e.g. unneeded synchronization) and scale trade-offs, argued at the architecture level; opt-in |
+
+**Lens roster — the USER picks it in standalone runs; automatic only inside /spec:workflow:**
+- **Standalone /spec:propose**: before dispatching, ask ONE multi-select question (crafted per /spec:ask's rules — scenario stem, every option self-contained with its benefit and cost): each lens's option is **its one-question identity from the table above** plus one line on **what skipping it leaves unguarded** — never the dispatch-brief stance text. Pre-recommend **reuse + fidelity**. **performance is never pre-recommended — it runs only when the user ticks it** (the user owns this switch); when research.md / index.md records a measured signal (profile output / slow-query log / user report), say so in the option's description as information, and when none exists the description says an evidence-starved perf pass will likely return "nothing to say".
+- **The selection IS the roster — an empty answer means ZERO lenses this run** (no panel; the gate still stands). Falling back to the recommended roster on an empty answer is the workflow behavior and belongs only there: in a standalone run the human is the roster authority, so an empty answer is a choice, never a gap to fill.
+- `--skip <lens>` flags (repeatable) pre-answer the question: no question is asked, the recommended roster minus the named lenses runs; an unknown lens name is flagged as a possible typo, never silently swallowed (a typo silently dropped would fake consent).
+- **Inside /spec:workflow** (two-touchpoint doctrine — no mid-flight questions): the roster is automatic — **reuse + fidelity**, plus the **compat pass** (section below); performance stays out (it is a user switch, and no user is present mid-flight).
+- **Either way the gate's Changes block discloses the roster** (`panel: reuse + fidelity` / `panel: none, user-selected`) so reduced coverage is always on the record.
+- **Extra review depth is one gate reply away**: the gate's Next block offers a supplementary panel round ("want a performance / deeper pass → say so in your reply").
+
+**Dispatch briefs (critic-facing material — the full locked stance each critic runs under):**
+
+| Lens | Locked stance | Default roster |
 |---|---|---|
-| **necessity** (chief) | "Oppose every measure by default." Four-question refutation of every `## What` item and every fallback / degrade / compat path in `## How`: why is it needed / what breaks if removed / does the triggering scenario actually occur in this business / is this optimal. **Verdict split**: a **silent fallback** (swallows failure, falls back to old logic, degrades pretending to be normal) with no real triggering-scenario evidence → recommend deletion; a **loud guard** (boundary validation / idempotency / CAS / throws on failure) is judged by "what invariant does it protect + blast radius if broken", **never** by incident history — tail-risk defenses may survive without one | yes |
-| **regression-compat** | what existing behavior, consumer, or installed user does this change break | yes |
-| **testability** | is every What item's `verify:` clause actually falsifiable — could it pass while the feature is broken | manual pick only |
-| **performance** | hot paths / loops / batch queries / N+1 | manual pick only |
+| **reuse** (chief) | "Assume an equivalent already exists until the search says otherwise." For every planned new artifact in What/How — dependency, middleware, service, code entity, frontend component, pattern — search the host project for an existing equivalent: the critic holds **codebase read access (Grep/Glob/Read)** and verifies rather than trusts the index; index.md `## Carriers` and A-N rows are the starting map, the codebase is the authority. A mapped-but-bypassed carrier, or a new artifact whose equivalent-search was never run, = finding. **Output register is a recommendation**: name the existing thing, what adopting it saves, and what the trade-off costs — the user picks; "you must reuse" is not this lens's voice (the requirement's owner decides, the lens informs) | recommended (standalone) / always (workflow) |
+| **fidelity** | "The source is the standard — measure the proposal against it in both directions." Ammunition: index.md R-N verbatim quotes + the requirement source itself. **Over-building**: a What/How item (including every fallback / guard / compat path) with no R-N whose quote entails it — flag it with the quote gap stated; defensive paths beyond what the source specifies are the classic case (extra states handled that the source scoped out corrupt data and confuse users). **Under-building**: an R-N no What item carries — flag it; a source clause silently dropped surfaces at delivery as the user's fault, so hiding one behind "engineering judgment" is the worst outcome this lens exists to prevent | recommended (standalone) / always (workflow) |
+| **performance** | "Defensive design has a runtime bill — read it like an architect." Audit the proposal's guards, synchronization, and data-path choices for runtime cost at the expected scale: locking/serialization that throttles concurrent paths, per-item round-trips where batch or in-memory handling fits (with the memory ceiling stated — an in-memory recommendation without its OOM boundary is not architecture), growth reasoning over hot paths. Macro trade-offs only — micro-optimization is out of scope. Each finding carries a recorded measured signal or a structural argument citing the concrete path plus the growth reasoning; "looks slow" is not evidence | user-ticked only (never auto) |
+
+**The compat pass (workflow-only — not a lens, and structurally unable to veto a requirement):** when `/spec:workflow` orchestrates propose AND the proposal touches existing surfaces (index A-N rows marked extend/modify, schema changes, published interface changes), one additional fresh-context pass enumerates the impact set — callers of modified code, consumers of changed interfaces, live data touched by schema moves. Its ONLY legal output is **landing steps**: additions to the proposal `## How` ("to land safely, also do X") so the requirement ships without breaking what exists. It produces no findings against `## What` — a requirement is the premise, never the defendant; an impact that genuinely cannot coexist with the requirement goes to the gate as an **escalated decision** for the user, stated as "landing this requires deciding X", never as a reason to drop the item. Standalone runs have no compat pass: research's impact enumeration (its extend/modify rule) plus the human at the gate carry that duty.
 
 **Discipline** (reuses the spec-verifier protocol — the anti-sycophancy measures are structural, not tonal):
+- **Finding register (expression charter)**: findings are written as recommendations — "suggest changing to X, adoption costs Y" — and default to the **judgement-call** tier; the **violation** tier is reserved for breaches of the project's own written standards. Warning-toned framing ("DANGER", naked risk lists with no forward path) fails the charter: every finding names its forward path.
 - **evidence-or-drop**: a finding must cite the concrete proposal line + the concrete scenario where it bites; "this might be risky" is dropped unwritten
+- **Settled ground is off-limits**: a finding whose substance re-litigates a `## Decided` entry (DEC-N), a knowledge-base `[ruling]`, or a decision already approved at a prior gate is dropped unwritten — the Decided list in the critics' read set exists to mark what NOT to attack, not just as refutation ammunition. The one exception: the critic holds **new evidence the original decision never saw** (a fact, not a preference) — then the finding must open by naming the DEC-N it challenges and the new evidence, or it is dropped
 - **≤3 findings per lens** — forced ranking, no noise dumps
-- **ONE refutation round**: the proposing conversation defends each finding citing evidence or a Decided entry; a finding neither refuted nor adopted stays open. No second debate round — multi-round agent-to-agent debate is measured net-negative (critics start conceding and flipping correct answers)
+- **ONE refutation round**: the proposing conversation defends each finding citing evidence or a Decided entry. No second debate round — multi-round agent-to-agent debate is measured net-negative (critics start conceding and flipping correct answers)
+- **Adjudication forks by invocation mode** (who rules on the findings that survive refutation):
+  - **Standalone /spec:propose — the USER rules, never the author**: batch the surviving findings into ONE structured adjudication round (delivered per /spec:ask's question rules; multi-select where findings are independent), each option self-contained — severity, the concrete consequence if ignored, the panel's recommendation, and the author's defense when one was raised. Per finding the user picks **adopt** (rewrite into the proposal before the gate), **reject** (recorded as a user ruling; a rejected false positive distills into the knowledge base at archive), or **leave open** (rides the gate's `Unresolved critique` line). The author silently absorbing findings into a rewrite the user never saw is the failure mode this round exists to prevent.
+  - **Inside /spec:workflow** (two-touchpoint doctrine — no mid-flight questions): the author adjudicates internally — adopted findings rewrite the proposal, everything else rides the gate's `Unresolved critique` line, and the gate's Changes block discloses what was absorbed; the user judges at the gate.
 - **Non-blocking**: the panel never vetoes. Open majors ride the gate's `Unresolved critique` line; the user is the judge
 
-**Ledger round 0**: write the panel's surviving findings to `spec/changes/<name>/verify.md` as **round 0 (stage: propose)** with stable V-N IDs, same table format as /spec:verify's rounds (create the file if absent). `/spec:verify`'s next round re-checks every still-open one. Adopted findings that changed the proposal are marked `fixed(r0)`.
+**Ledger round 0**: write the panel's surviving findings to `spec/changes/<name>/verify.md` as **round 0 (stage: propose)** with stable V-N IDs, same table format as /spec:verify's rounds (create the file if absent). `/spec:verify`'s next round re-checks every still-open one. Adopted findings that changed the proposal are marked `fixed(r0)`; user-rejected ones are marked `rejected (user ruling)` — they don't reopen in later rounds unless new evidence appears.
 
 ## --codex: heterogeneous adversarial review (optional)
 
@@ -148,6 +170,16 @@ rewritten around its scenario.
 Decided without asking: <[TBD]s resolved autonomously (factual + auto), one line each — the
 evidence or default used + reversibility; "none" if none — mandatory line, it lets the user
 catch a misclassified preference>
+Unsourced additions: <behavioral items (validation / required fields / permissions / endpoints /
+schema) carrying no valid R-N citation against the change's index.md, AND new carriers
+(fields / params / methods / endpoints / validations / defaults) with no C-N backing — one
+line each; declared C-N minting rows surface here for approval too. They ride this gate as
+additions to approve, never slip through as "obviously good"; "none" if every behavioral
+What item cites the index and every carrier reconciles; "legacy change (no index)" when the
+change predates the index format — mandatory line>
+Uncovered requirements: <index R-N entries no What item carries — one line each with the
+quote; "none" when the coverage matrix is clean; "legacy change (no index)" for changes
+predating the index format — mandatory line>
 Unresolved critique: <critique-panel findings that survived the refutation round unresolved,
 one line each with the panel's evidence (they sit as open round-0 findings in the ledger);
 "none" if none>
@@ -159,6 +191,8 @@ Next:
   🔧 Tweak one section → /spec:revise [why | what | how | risk]
   💭 Want to talk the direction over → /spec:chat
   🔄 Research needs redoing → /spec:research "<new direction>"
+  🔍 Want an extra review pass (performance / a deeper look at one aspect) → say so in this
+     reply — a supplementary panel round answers it
 </HARD-GATE>
 ```
 
@@ -167,7 +201,7 @@ reply is an evaluation, not a command sheet. Respond to EVERY item in it explici
 **adopt** (apply via /spec:revise) / **refute** (state the reason: evidence or a Decided
 entry) / **partial** (which half and why). One response round only; the user has the final
 say — an item the user insists on after your refutation is applied AND recorded in the
-ledger as a user-override (the lesson later lands in spec/knowledge.md at archive time).
+ledger as a user-override (the lesson later lands in the knowledge base at archive time).
 Absorbing every point without examination is sycophancy toward the user — the flow's
 quality depends on criticism running in both directions.
 
@@ -192,6 +226,8 @@ User rejects → go through `/spec:revise [section]` (local) or `/spec:chat` (re
 - ❌ `## How` copying research.md `## Decided` verbatim (distill, don't transport)
 - ❌ Bursting the proposal sections with content (it should move to design)
 - ❌ A `## What` item without a `verify:` clause (leaves /spec:verify's Completeness check nothing falsifiable)
+- ❌ A behavioral What item with no `refs:` citation, or citing an R-N whose quote doesn't entail it — both belong on the gate's `Unsourced additions` line; omitting them there is the violation (verify audits mismatched refs as unsourced)
+- ❌ Minting a new carrier (field / param / method / endpoint / validation / default) without reconciling it against the index's `## Carriers` — a mapped-but-bypassed carrier or an undeclared minting belongs on the same gate line
 - ❌ Translating section headers (e.g. `## 为什么（Why）`) — headers are always `## Why / ## What / ## How / ## Risk`; `/spec:revise` targets sections by English name
 - ❌ Gate Changes written in insider shorthand ("three-layer CAS idempotency guarantee (DEC-8/9/11)") — that is executor register; the gate is decision-maker register (Problem / After / Cost, same-scenario mirror)
 - ❌ Skipping the critique panel, or running it and withholding open findings from the gate (the user judges with full information or the gate is theater)
