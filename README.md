@@ -6,7 +6,7 @@
 
 Make large changes controllable and reversible — research, interrogation, proposal, **HARD GATE**, implementation, independent verification, archive. Every step is re-entrant, hard-constrained, and delegatable.
 
-[![Version](https://img.shields.io/badge/version-0.5.3-blue.svg)](https://github.com/bcxdawn222/spec)
+[![Version](https://img.shields.io/badge/version-0.11.1-blue.svg)](https://github.com/bcxdawn222/spec)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](https://github.com/bcxdawn222/spec)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
@@ -16,6 +16,18 @@ Make large changes controllable and reversible — research, interrogation, prop
 
 ---
 
+## 当前版本与宿主范围
+
+Claude Code 和 Codex CLI 已同步 [kamioj/spec-workflow 0.11.1](https://github.com/kamioj/spec-workflow/commit/568585ed3e8d5fa356eac51756d3aa65035d0438)，提供 18 个命令。Cursor 端采用本仓库独立维护的 12 命令适配，功能范围见其使用说明。
+
+- 新增阶段网页视图，支持调研、问询、架构设计、方案和验收记录的标准或高级排版。
+- 高级视图支持架构流程图、任务依赖图，以及可选择并复制回复的问询页和方案页。
+- 新增知识库整理与无活动 spec 时的 diff 验证，并改进 Windows 钩子启动及 CRLF 文档兼容性。
+
+升级后的 Codex 项目会话可运行 `$spec-view all advanced zh`，Claude Code 可运行 `/spec:view all advanced zh`。文档更新后重新运行视图命令刷新页面，交互页面的回复文字需要粘回会话完成确认。
+
+开发检查通过 `python scripts/check.py` 或 `sh scripts/check.sh` 执行，检查日志写入仓库内的 `logs` 目录。
+
 ## Why
 
 AI-assisted spec-driven development has two established paradigms:
@@ -23,7 +35,7 @@ AI-assisted spec-driven development has two established paradigms:
 - **Fast flow**: start coding immediately, hooks as backstop — easy to drift
 - **Heavy flow**: spec-first but rigid — OpenSpec's 4 commands, 9-step superpowers
 
-**spec-workflow takes a third path**: keep the value of "think before you act", but split the flow into **12 independent commands** — every phase is re-entrant, interruptible, and redoable in isolation. Three hard-gate hooks make the flow **actually stop where it should**, and a Stop driver turns `/spec:loop` self-driving rounds into a hard mechanism.
+**spec-workflow takes a third path**: keep the value of "think before you act", but split the flow into **18 independent commands** for Claude Code and Codex CLI — every phase is re-entrant, interruptible, and redoable in isolation. Three hard-gate hooks make the flow **actually stop where it should**, and a Stop driver turns `/spec:loop` self-driving rounds into a hard mechanism.
 
 ### What makes it different
 
@@ -31,7 +43,7 @@ AI-assisted spec-driven development has two established paradigms:
 |---|---|---|---|
 | Phase control | Explicit HARD GATE + hook interception | Fluid soft warnings | 9-step rigid flow |
 | Pending decisions `[TBD]` | Allowed + hook-enforced clearing | Open Questions can linger | Forbidden |
-| Command granularity | 12 independent commands | 4-command monolith | skill-based single flow |
+| Command granularity | 18 independent commands (Claude Code / Codex CLI) | 4-command monolith | skill-based single flow |
 | Mid-flow re-entry | Every phase independently callable | `/opsx:continue` | Start over |
 | Anti-cheating | Commands + agent + opt-in flags | None | Implicit |
 
@@ -60,7 +72,7 @@ Positioning: **single developer + large changes + fool-proofing** — stricter t
 
 ```bash
 claude plugin marketplace add bcxdawn222/spec
-claude plugin install spec@spec
+claude plugin install spec@spec-workflow
 # or local: claude --plugin-dir .
 ```
 
@@ -74,7 +86,7 @@ Then in a session:
 
 ```bash
 codex plugin marketplace add bcxdawn222/spec
-codex plugin install spec@spec
+codex plugin add spec@spec-workflow
 ```
 
 Then in a session:
@@ -98,7 +110,7 @@ Copy-Item sdd-cursor\references -Recurse -Force
 
 ---
 
-## The 12 Commands
+## Claude Code / Codex CLI 的 18 个命令
 
 | Command | Responsibility |
 |---|---|
@@ -114,6 +126,12 @@ Copy-Item sdd-cursor\references -Recurse -Force
 | `/spec:status` | report current phase |
 | `/spec:chat` | discussion mode, touches no documents |
 | `/spec:archive` | gate-checked archive + retrospect + knowledge.md |
+| `/spec:fix <task>` | 小改动按日期记录到修复批次 |
+| `/spec:ship [date]` | 检查并完成一个修复批次 |
+| `/spec:stash` | 暂停当前变更 |
+| `/spec:resume [name]` | 切换或恢复指定变更 |
+| `/spec:view [stage] [tier] [lang] [dir]` | 生成阶段产物的 HTML 网页视图 |
+| `/spec:knowledge [focus]` | 整理项目知识库并选择需要沉淀的经验 |
 
 ---
 

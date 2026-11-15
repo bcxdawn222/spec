@@ -5,8 +5,11 @@
 #
 #   sh codex/hooks/run-fixtures.sh
 #
-# Requires: sh + coreutils; pwsh optional (skipped with a warning if absent -- but a gate
-# edit is only DONE when both twins pass).
+# Requires: sh + coreutils. The ps1 twin runs through its production entry: on Windows that
+# is powershell.exe + hook-launcher.ps1 (delegates to pwsh when found, else runs the twin
+# in-process under 5.1) -- run once with pwsh on PATH and once without to cover both paths.
+# Elsewhere it is pwsh directly; with neither available the ps1 twin is skipped with a
+# warning -- but a gate edit is only DONE when both twins pass.
 
 set -u
 HOOKS_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
@@ -17,9 +20,25 @@ trap 'rm -rf "$TMP_ROOT"' EXIT
 # same cwd works for both twins
 command -v cygpath >/dev/null 2>&1 && TMP_ROOT=$(cygpath -m "$TMP_ROOT")
 
-HAVE_PWSH=0
-command -v pwsh >/dev/null 2>&1 && HAVE_PWSH=1
-[ $HAVE_PWSH -eq 0 ] && echo "WARN: pwsh not found -- testing sh twins only (NOT a full pass)"
+PS1_ENTRY=""
+if command -v powershell.exe >/dev/null 2>&1; then PS1_ENTRY=launcher
+elif command -v pwsh >/dev/null 2>&1; then PS1_ENTRY=pwsh; fi
+HOOKS_DIR_NATIVE=$HOOKS_DIR
+command -v cygpath >/dev/null 2>&1 && HOOKS_DIR_NATIVE=$(cygpath -m "$HOOKS_DIR")
+case "$PS1_ENTRY" in
+    launcher) echo "INFO: ps1 twins via powershell.exe launcher -- $(powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$HOOKS_DIR_NATIVE/hook-launcher.ps1" --probe | tr -d '\r')"
+              echo "      (cover the other path too: with pwsh reachable -> delegate; LOCALAPPDATA=<empty dir> and no pwsh on PATH -> 5.1)" ;;
+    pwsh)     echo "INFO: ps1 twins via pwsh" ;;
+    *)        echo "WARN: neither powershell.exe nor pwsh found -- testing sh twins only (NOT a full pass)" ;;
+esac
+# run_ps1 <hook-basename> -- stdin passes through; same entry Codex uses on this platform
+run_ps1() {
+    if [ "$PS1_ENTRY" = launcher ]; then
+        powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$HOOKS_DIR_NATIVE/hook-launcher.ps1" "$HOOKS_DIR_NATIVE/$1.ps1"
+    else
+        pwsh -NoProfile -NonInteractive -File "$HOOKS_DIR/$1.ps1"
+    fi
+}
 
 PASS=0
 FAIL=0
@@ -29,11 +48,11 @@ run_case() {
     name=$1; hook=$2; expected=$3; stdin=$4
 
     for impl in sh ps1; do
-        [ "$impl" = "ps1" ] && [ $HAVE_PWSH -eq 0 ] && continue
+        [ "$impl" = "ps1" ] && [ -z "$PS1_ENTRY" ] && continue
         if [ "$impl" = "sh" ]; then
             out=$(printf '%s' "$stdin" | sh "$HOOKS_DIR/$hook.sh" 2>/dev/null)
         else
-            out=$(printf '%s' "$stdin" | pwsh -NoProfile -NonInteractive -File "$HOOKS_DIR/$hook.ps1" 2>/dev/null)
+            out=$(printf '%s' "$stdin" | run_ps1 "$hook" 2>/dev/null)
         fi
         case "$out" in
             *'"decision":"block"'*|*'"decision": "block"'*) got=block ;;
@@ -122,6 +141,31 @@ P=$(mkproj tbd-prov); mkdir -p "$P/spec/changes/c"
 printf '# R\n\n## Practices\n- pattern X (drove [TBD-1])\n\n## Constraints\n- limit Y, see [TBD-2]\n\n## Open [TBD]\n(none)\n\n## Decided\n- [DEC-1] chosen | source [TBD-1] | reason\n' > "$P/spec/changes/c/research.md"
 run_case tbd-provenance-ref-allows check-tbd allow "$(json "$P" '$spec-propose')"
 
+# /spec:ask persists crafted questions as indented sub-lines under their [TBD-N]; sub-lines carry no
+# token, so a live entry still blocks once and leftover sub-lines alone never block
+P=$(mkproj tbd-sublines-only); mkdir -p "$P/spec/changes/c"
+printf '# R\n\n## Open [TBD]\n  - Q: stale scenario stem\n  - 1: fast / extra dependency\n\n## Decided\n- [DEC-1] chosen | source [TBD-1] | reason\n' > "$P/spec/changes/c/research.md"
+run_case tbd-open-only-sublines-allows check-tbd allow "$(json "$P" '$spec-propose')"
+
+P=$(mkproj tbd-live-sublines); mkdir -p "$P/spec/changes/c"
+printf '# R\n\n## Open [TBD]\n- [TBD-1] pick one | candidates: a / b | select: one\n  - Q: when a user saves twice, which copy wins?\n  - 1: simple / stale reads\n  - 2: consistent / extra hop\n\n## Decided\n(none)\n' > "$P/spec/changes/c/research.md"
+run_case tbd-live-with-sublines-blocks check-tbd block "$(json "$P" '$spec-propose')"
+
+# /spec:verify diff-mode records live under spec/archive/ — they must never count as an active change:
+# with one real active change present, check-tbd tells the placements apart (under archive → still a
+# single active change → allow; misplaced under spec/changes/ → two active, no pointer → block)
+P=$(mkproj verify-record-only); mkdir -p "$P/spec/archive/2026-11-05-verify-login-fix"
+mkdir -p "$P/spec/changes/c"; printf '# R
+
+## Open [TBD]
+(none)
+
+## Decided
+(none)
+' > "$P/spec/changes/c/research.md"
+printf -- '---\nmode: diff\nround: 1\nconclusion: pass\n---\n' > "$P/spec/archive/2026-11-05-verify-login-fix/verify.md"
+run_case verify-record-only-gates-unchanged check-tbd allow "$(json "$P" '$spec-propose')"
+
 # ---- check-archive ----
 P=$(mkproj arch-unapproved); mkdir -p "$P/spec/changes/c"
 printf '%s' "$FULL_PROPOSAL" > "$P/spec/changes/c/proposal.md"
@@ -195,13 +239,13 @@ run_driver_case() {
     name=$1; expected=$2; proj=$3; state=$4; stdin=$5; require=${6:-}; forbid=${7:-}
     sdir="$proj/spec/changes/g"
     for impl in sh ps1; do
-        [ "$impl" = "ps1" ] && [ $HAVE_PWSH -eq 0 ] && continue
+        [ "$impl" = "ps1" ] && [ -z "$PS1_ENTRY" ] && continue
         if [ "$state" = "-" ]; then rm -f "$sdir/.loop-state" 2>/dev/null
         else printf '%s' "$state" > "$sdir/.loop-state"; fi
         if [ "$impl" = "sh" ]; then
             out=$(printf '%s' "$stdin" | sh "$HOOKS_DIR/loop-driver.sh" 2>/dev/null)
         else
-            out=$(printf '%s' "$stdin" | pwsh -NoProfile -NonInteractive -File "$HOOKS_DIR/loop-driver.ps1" 2>/dev/null)
+            out=$(printf '%s' "$stdin" | run_ps1 loop-driver 2>/dev/null)
         fi
         code=$?
         if [ "$code" -ne 0 ]; then got="exit-$code"
@@ -337,20 +381,20 @@ tree_fp_history=na,na,na
 # DEC-7: fingerprint includes HEAD — verified for BOTH twins (each computes its own format)
 assert_head_fp_changes() {
     for impl in sh ps1; do
-        [ "$impl" = "ps1" ] && [ $HAVE_PWSH -eq 0 ] && continue
+        [ "$impl" = "ps1" ] && [ -z "$PS1_ENTRY" ] && continue
         gp="$TMP_ROOT/git-real-$impl"; rm -rf "$gp"; mkdir -p "$gp/spec/changes/g"
         printf '%s' "$LOOP_RUNNING" > "$gp/spec/changes/g/loop.md"
         ( cd "$gp" && git init -q && git add -A && git -c user.email=f@x -c user.name=f commit -qm i ) || return 1
         if [ "$impl" = "sh" ]; then
             printf '%s' "$(json_stop "$gp" false)" | sh "$HOOKS_DIR/loop-driver.sh" >/dev/null 2>&1
         else
-            printf '%s' "$(json_stop "$gp" false)" | pwsh -NoProfile -NonInteractive -File "$HOOKS_DIR/loop-driver.ps1" >/dev/null 2>&1
+            printf '%s' "$(json_stop "$gp" false)" | run_ps1 loop-driver >/dev/null 2>&1
         fi
         ( cd "$gp" && git -c user.email=f@x -c user.name=f commit -qm r2 --allow-empty ) || return 1
         if [ "$impl" = "sh" ]; then
             printf '%s' "$(json_stop "$gp" false)" | sh "$HOOKS_DIR/loop-driver.sh" >/dev/null 2>&1
         else
-            printf '%s' "$(json_stop "$gp" false)" | pwsh -NoProfile -NonInteractive -File "$HOOKS_DIR/loop-driver.ps1" >/dev/null 2>&1
+            printf '%s' "$(json_stop "$gp" false)" | run_ps1 loop-driver >/dev/null 2>&1
         fi
         f2=$(sed -n 's/^tree_fp_history=//p' "$gp/spec/changes/g/.loop-state")
         case "$f2" in *,*) : ;; *) return 1 ;; esac
@@ -627,6 +671,22 @@ run_case reminder-pointer-binds-nudge check-verify-reminder block "$(json_stop "
 printf 'draft\n' > "$P/spec/changes/.current"
 run_case reminder-pointer-other-allows check-verify-reminder allow "$(json_stop "$P" false)"
 
+# archive with multiple active changes: explicit name > pointer > let through (never block
+# on multiplicity itself); a selected target is audited like a sole active change
+P=$(mkproj ptr-arch); mkdir -p "$P/spec/changes/appr" "$P/spec/changes/draft"
+printf '%s\n<!-- APPROVED: 2026-09-10 12:00 -->\n' "$FULL_PROPOSAL" > "$P/spec/changes/appr/proposal.md"
+printf '%s' "$FULL_PROPOSAL" > "$P/spec/changes/draft/proposal.md"
+run_case archive-multi-no-pointer-allows check-archive allow "$(json "$P" '$spec-archive')"
+printf 'ghost\n' > "$P/spec/changes/.current"
+run_case archive-pointer-dangling-multi-allows check-archive allow "$(json "$P" '$spec-archive')"
+printf 'draft\n' > "$P/spec/changes/.current"
+run_case archive-pointer-unapproved-blocks check-archive block "$(json "$P" '$spec-archive')"
+run_case archive-pointer-force-overrides check-archive allow "$(json "$P" '$spec-archive force')"
+run_case archive-named-target-beats-pointer check-archive allow "$(json "$P" '$spec-archive appr')"
+printf 'appr\n' > "$P/spec/changes/.current"
+run_case archive-pointer-approved-allows check-archive allow "$(json "$P" '$spec-archive')"
+run_case archive-named-unapproved-blocks check-archive block "$(json "$P" '$spec-archive draft')"
+
 # DEC-2: the documented resume re-bind command performs surgery on session_id ONLY
 assert_resume_rebind() {
     rs="$TMP_ROOT/rebind"; mkdir -p "$rs"
@@ -635,6 +695,54 @@ assert_resume_rebind() {
     grep -q '^session_id=NEWSESS$' "$rs/.loop-state" && grep -q '^rounds_injected=3$' "$rs/.loop-state" && grep -q '^retro_reinjects=1$' "$rs/.loop-state"
 }
 run_assert loop-resume-rebind-cmd assert_resume_rebind
+
+# ---- ps1 twins must be pure ASCII (plain check, not a named case: Codex-only mechanics) ----
+# The launcher's fallback runs them under Windows PowerShell 5.1, which reads a BOM-less file
+# in the ANSI codepage: a multi-byte character (an em dash in a comment) can be misdecoded and
+# break parsing. Write ASCII only ("--" for a dash).
+for f in "$HOOKS_DIR"/*.ps1; do
+    if LC_ALL=C tr -d '\r' < "$f" | LC_ALL=C grep -q '[^ -~	]'; then   # CR stripped: CRLF checkouts are fine
+        FAIL=$((FAIL+1)); echo "FAIL  ps1-ascii:$(basename "$f")  non-ASCII byte found (PS 5.1 fallback would misread it)"
+    else
+        PASS=$((PASS+1)); echo "PASS  ps1-ascii:$(basename "$f")"
+    fi
+done
+
+# ---- hooks.json.template (script installs) must mirror hooks.json (plugin installs) ----
+# Two hand-maintained copies of the same hook list; a hook added to one only (the template
+# once lacked loop-driver) silently disables it for that install method.
+if [ -f "$HOOKS_DIR/hooks.json.template" ]; then
+    sed -e 's#${PLUGIN_ROOT}/hooks#<ROOT>#g' "$HOOKS_DIR/hooks.json" | tr -d '\r' > "$TMP_ROOT/hj.plugin"
+    sed -e 's#__SDD_HOOKS_DIR__#<ROOT>#g' "$HOOKS_DIR/hooks.json.template" | tr -d '\r' > "$TMP_ROOT/hj.script"
+    if diff "$TMP_ROOT/hj.plugin" "$TMP_ROOT/hj.script" > "$TMP_ROOT/hj.diff"; then
+        PASS=$((PASS+1)); echo "PASS  hooks-template-sync"
+    else
+        FAIL=$((FAIL+1)); echo "FAIL  hooks-template-sync  hooks.json.template differs from hooks.json (< plugin, > template)"
+        sed 's/^/      /' "$TMP_ROOT/hj.diff" | head -6
+    fi
+fi
+
+# ---- CRLF artifacts (core.autocrlf checkouts on Windows): both twins must read them like LF ----
+crlf() { awk '{ printf "%s\r\n", $0 }'; }
+P=$(mkproj crlf-gate); mkdir -p "$P/spec/changes/my-change"
+printf '%s' "$FULL_PROPOSAL" | crlf > "$P/spec/changes/my-change/proposal.md"
+run_case crlf-gate-happy-path      check-gate allow "$(json "$P" '$spec-apply')"
+P=$(mkproj crlf-tbd); mkdir -p "$P/spec/changes/c"
+printf '# R\n\n## Open [TBD]\n- [TBD-1] pick one\n\n## Decided\n(none)\n' | crlf > "$P/spec/changes/c/research.md"
+run_case crlf-tbd-open-blocks      check-tbd block "$(json "$P" '$spec-propose')"
+P=$(mkproj crlf-arch-loop); mkdir -p "$P/spec/changes/g"
+printf '%s' "$LOOP_RUNNING" | sed -e 's/^status: running$/status: done/' \
+    -e 's/^- \[ \] A-1 thing (verify: x)$/- [x] A-1 thing (verify: x)/' | crlf > "$P/spec/changes/g/loop.md"
+run_case crlf-archive-loop-done-allows check-archive allow "$(json "$P" '$spec-archive')"
+P=$(mkproj crlf-arch-quick); mkdir -p "$P/spec/changes/h"
+printf '%s' "$QUICK_DONE" | crlf > "$P/spec/changes/h/quick.md"
+run_case crlf-archive-quick-done-allows check-archive allow "$(json "$P" '$spec-archive')"
+P=$(mkproj crlf-arch-fix); mkdir -p "$P/spec/changes/fixes"
+printf '%s' "$FIX_SHIPPED" | crlf > "$P/spec/changes/fixes/fix.md"
+run_case crlf-archive-fix-shipped-allows check-archive allow "$(json "$P" '$spec-archive')"
+P=$(mkproj crlf-loop); mkdir -p "$P/spec/changes/g"
+printf '%s' "$LOOP_RUNNING" | crlf > "$P/spec/changes/g/loop.md"
+run_driver_case crlf-loop-continue-reinjects reinject "$P" - "$(json_stop "$P" false)"
 
 echo "----"
 echo "pass=$PASS fail=$FAIL"

@@ -1,6 +1,6 @@
 ---
 name: core
-description: Spec-driven development workflow overview. Load this skill ONLY when the user explicitly asks for the spec flow — says "spec this first / draft a proposal / design first / write a proposal", or invokes a /spec:x command. NEVER self-activate on task size or complexity: size is at most grounds for a one-line suggestion, and silence means proceed without spec. Teaches the sdd plugin's 16 commands, artifact map, and Shared Principles (HARD GATE / interrogation / Stuck Protection / Anti-Cheating).
+description: Spec-driven development workflow overview. Load this skill ONLY when the user explicitly asks for the spec flow — says "spec this first / draft a proposal / design first / write a proposal", or invokes a /spec:x command. NEVER self-activate on task size or complexity: size is at most grounds for a one-line suggestion, and silence means proceed without spec. Teaches the sdd plugin's 18 commands, artifact map, and Shared Principles (HARD GATE / interrogation / Stuck Protection / Anti-Cheating).
 ---
 <!-- GENERATED from core/skill.md — edit the core file and run node tools/generate.mjs; hand edits will be overwritten -->
 
@@ -22,11 +22,13 @@ Size signals (>150 lines / 3+ files / new dependency / architecture choice) are 
 
 | Category | Command | Responsibility |
 |---|---|---|
-| Entry | `/spec:workflow <task>` | run the whole flow end-to-end; back-compatible with the old /sdd |
+| Entry | `/spec:workflow <task>` | run the whole flow end-to-end |
 |  | `/spec:loop <goal>` | goal-driven autonomous round loop (goal known, path unknown): two touchpoints — goal confirmation + final acceptance — with Stop-hook-driven rounds and a cross-round ledger in between |
 |  | `/spec:fix <task>` | streaming light tier for bug fixes and small changes: locate & confirm → fix (or research candidates when uncertain) → append an F-N entry to today's daily batch `spec/changes/fixes/<date>/`; size is advisory, never a refusal |
 |  | `/spec:ship` | close one fix batch (named date, or the oldest): ONE independent audit over its accumulated diff — run by this conversation when it wrote none of the entries, a subagent only otherwise — then archive that batch dir; findings stay in place on fail |
 |  | `/spec:status` | report the current stage |
+|  | `/spec:view [stage] [tier] [dir]` | render stage artifacts into self-contained HTML views (standard / advanced; the ask and proposal pages are interactive and build a paste-back reply); fixed templates do the layout, so any model gets the same page — `view` / `--view` on research / ask / design / propose / verify is shorthand |
+|  | `/spec:knowledge [focus]` | tidy the knowledge base on demand: audit (dead anchors → suspect), automatic reversible tidying, then two question rounds — pick delete / retire / promote candidates, then new skill / merge / drop / keep per promoted lesson; /spec:archive runs the same pass |
 |  | `/spec:stash` | park a change deliberately (`.paused` marker: date + reason) — optional bookkeeping, not a switching prerequisite; every artifact stays warm |
 |  | `/spec:resume [name]` | **the switcher**: writes the current pointer (`spec/changes/.current`) to the named change, unpausing it if parked; no name → list what there is to switch to |
 | Gather | `/spec:research <direction>` | survey industry practice + key constraints |
@@ -36,15 +38,15 @@ Size signals (>150 lines / 3+ files / new dependency / architecture choice) are 
 |  | `/spec:propose [--codex] [--skip <lens>]` | write proposal.md; `--codex` lets codex poke holes in the solution; standalone runs pick the critique roster in one multi-select (`--skip` pre-answers it); workflow dispatches automatically |
 |  | `/spec:revise [section]` | edit a single proposal section (why/what/how/risk) |
 | Execute & verify | `/spec:apply` | implement the code |
-|  | `/spec:verify [--codex] [--fix]` | dispatches the independent spec-verifier agent (four dimensions — Coherence includes the charter sub-audit, Reuse & Conformance covers project-idiom fit of new files); `--codex` adds codex as a heterogeneous second reviewer, `--fix` lets codex edit |
-| Wrap up | `/spec:archive` | archive the change |
+|  | `/spec:verify [--codex] [--fix] [--diff [range]] [--view]` | dispatches the independent spec-verifier agent (four dimensions — Coherence includes the charter sub-audit, Reuse & Conformance covers project-idiom fit of new files); `--codex` adds codex as a heterogeneous second reviewer, `--fix` lets codex edit; no spec / `--diff` → diff mode (git / svn / this conversation's edits → test points, tests, screenshots) |
+| Wrap up | `/spec:archive` | archive the change: retrospect, lesson mining (fresh-context spec-reflector; user-selected edits land in project skills / rules files), knowledge sediment |
 
 ## Artifact map
 
 ```
 spec/
 ├── knowledge.md                      project knowledge INDEX — one line per subdoc, `- [kind/domain] file — hook` (format → references/knowledge-spec.md; legacy flat files read whole + declared)
-├── knowledge/                        knowledge subdocs: domain fact files + long-form experience docs (frontmatter status; written by archive/ship/verify sediment steps, read two-step by every consumer)
+├── knowledge/                        knowledge subdocs: domain fact files + long-form experience docs (frontmatter status; written by archive/ship/verify sediment steps, tidied by /spec:knowledge + archive, read two-step by every consumer); knowledge/archive/ holds docs retired on a user pick (unindexed, kept as written)
 ├── changes/                          active change workspace
 │   ├── .current                      current-change pointer (one line: change name) — gates target it first, fall back to the single-active rule when absent/dangling; written by research, switched by /spec:resume <name>, cleared by stash/archive of the pointed change; concurrent sessions on one project share it last-write-wins (same semantics as a git branch checkout)
 │   └── <change-name>/
@@ -53,6 +55,7 @@ spec/
 │       ├── index.md      required    requirement & asset index (R-N verbatim quotes + A-N assets + E-N exemplars; built by research, frozen at gate, append-only — see references/index-spec.md; changes predating the format are legacy: consumers declare the absence and fall back, never block)
 │       ├── design.md     optional    technical design (architecture / interfaces / data model)
 │       ├── proposal.md   required    the final solution (carries the HARD GATE approval marker)
+│       ├── gate.md       at-propose  verbatim copy of the last emitted HARD GATE block (propose writes it before emitting; revise replaces only the numbered Changes item it rewrites) — the proposal view renders the Changes layer from it
 │       ├── tasks.md      optional    task list for multi-executor collaboration
 │       ├── verify.md     at-propose+ verification ledger (stable V-N finding IDs + round history + Evidence; round 0 by propose's critique panel, rounds 1+ by /spec:verify)
 │       ├── loop.md       at-loop     round ledger of a /spec:loop run (goal + acceptance checklist + rounds + lessons; model-written, driver-read — see references/loop-spec.md)
@@ -60,15 +63,17 @@ spec/
 │       ├── fix.md        at-fix      streaming light-tier batch ledger, lives in daily batch dirs changes/fixes/<YYYY-MM-DD>/ (legacy flat fixes/fix.md stays recognized; F-N entries + ship-time Audit — see references/fix-spec.md); fix.md WITHOUT proposal.md = light-tier, the fixes/ tree excluded from the active count; WITH proposal.md = upgraded, normal full change. Legacy quick.md dirs keep the same exemption + archive audit
 │       ├── screens/      at-apply    screenshot evidence map for UI-touching changes: captures + screens.md index (screen / prototype ref / file / state); update-in-place — same screen keeps the same filename, re-capture overwrites; the user reviews delivery visuals here without starting the stack
 │       ├── .paused       at-stash    suspension marker (one line: date + reason) — gates and the reminder skip the dir; /spec:resume deletes it
-│       └── retrospect.md at-archive  written by /spec:archive right before the move (divergence review + evidence + leftovers)
+│       ├── view/         at-view     derived HTML views (<stage>.html, overwritten in place, never edited or read as a source; view/<lang>/ holds derived translations so the page prose is in the reader's language — format → references/view-spec.md)
+│       └── retrospect.md at-archive  written by /spec:archive right before the move (divergence review + evidence + leftovers + lesson routing)
 │
 └── archive/                          archive directory
-    └── YYYY-MM-DD-<name>/            the whole change directory after archiving
+    ├── YYYY-MM-DD-<name>/            the whole change directory after archiving
+    └── YYYY-MM-DD-verify-<slug>/     a /spec:verify diff-mode record (verify.md with `mode: diff` + screens/) — no spec, never a change
 ```
 
 **spec/ roots at the directory the session was launched from** (`$CLAUDE_PROJECT_DIR` on Claude Code; the session cwd on Codex) — the gate hooks resolve it there and ONLY there, with no subdirectory search. Working on a subproject of a monorepo does NOT move spec/ into the subproject: keep spec/ at the launch root (change names can carry a subproject prefix), or launch the session inside the subproject so the root follows. **A git worktree is its own root**: the session's worktree carries its own spec/ tree — never follow `.git`/gitdir back to the main repository or a sibling worktree (their spec/ trees belong to their sessions). A spec/ tree created anywhere else is invisible to every gate — apply/ship/archive block with "no spec/changes/ directory", and a gate that DOES find the local tree can block naming an unrelated change from it (maximally misleading). **After creating a change directory, self-check the path**: confirm its absolute path sits under `<launch root>/spec/changes/` before writing artifacts into it.
 
-**The artifact set is fixed at these four + the requirement & asset index + the discarded-draft pile + the verification ledger + the /spec:loop round ledger (with its driver state file) + the /spec:fix batch ledger + the .paused marker + the archive-stage retrospect + the project-level knowledge.md.** The model inventing unplanned extra files (app-current / decisions / migration-inventory, etc.) is a direct source of document bloat — any fifth file type requires **explicit user approval**, otherwise fold the content into one of the four.
+**The artifact set is fixed at the entries of the map above.** The model inventing unplanned extra files (app-current / decisions / migration-inventory, etc.) is a direct source of document bloat — any artifact type not in the map requires **explicit user approval**; otherwise fold the content into the existing artifact whose job it is (see the Phase Responsibility Matrix below).
 
 ## Phase Responsibility Matrix (each artifact has its own job; crossing the line is the source of bloat)
 
@@ -79,12 +84,13 @@ The main cause of bloated docs on large changes is **phase boundary violations**
 | research.md | External information: Practices / Constraints / Open[TBD] / Decided (DEC-N conclusion + one-line reason) | architecture·interfaces·schema→design ｜ changed files→proposal What ｜ raw search process→discarded-draft pile | one line each |
 | index.md | Static external anchor: R-N verbatim requirement quotes / A-N assets / E-N exemplar designations (append-only; quotes, never paraphrases) | status·progress·code locations·coverage → computed per verify round, never stored ｜ interpretation → downstream artifacts cite entries, never restate them | one line per entry |
 | design.md | Internal technical structure: architecture diagram (structure, no fields) / interface contract (precise schema) / data model / **deep argument for contested decisions only** | business motivation→proposal Why ｜ risk·rollback→proposal Risk ｜ full code·DDL→apply ｜ copying DEC-N conclusions (reference, don't transcribe) ｜ expanding non-contested decisions | **narrative/argument ≤150 lines** (contracts excluded, as precise as needed); split diagrams >20 nodes; expand 1–2 decisions, ≤12 lines each |
-| proposal.md | Decision record: Why / What (each item + `verify:` acceptance check, closing **Not in this change** list) / How (conclusion + pointer) / Risk | deep argument→design ｜ schema→design ｜ restating design decisions | ≤5 lines per section (`verify:` clauses + the Not-in-this-change block don't count) |
+| proposal.md | Decision record: Why / What (each item + `verify:` acceptance check, closing **Not in this change** list) / How (conclusion + pointer) / Risk | deep argument→design ｜ schema→design ｜ restating design decisions | ≤5 lines per section (`verify:` clauses + the Not-in-this-change block + the How key-flow diagram don't count) |
 | tasks.md | Collaboration list: owner / deps / acceptance | restating the solution → point back to proposal/design | one line per task |
 | verify.md | Verification ledger — two writers, same table: round 0 (stage: propose) by /spec:propose's critique panel, rounds 1+ by /spec:verify; findings with stable V-N IDs + severity + status (open/fixed/wontfix) + per-round Evidence; acceptance-stage user evaluations enter as user-sourced findings | restating the fix → it lives in code ｜ restating the solution → proposal/design | one line per finding |
 | loop.md | /spec:loop round ledger: goal + Acceptance checklist (checkboxes ONLY here; mid-loop checks self-claimed with working-check evidence, independently audited at final acceptance) / round records (Plan·Act·Verify·Retrospect) / Lessons — **model-written only**; the driver reads mechanical counts and owns `.loop-state` | proposal-grade solution records → the loop's own artifacts stay in loop.md; durable lessons → the knowledge base at archive | one round section per round; Lessons one line each |
 | fix.md | Streaming light-tier batch ledger: per-entry verbatim Ask quote / root cause / files / self-check evidence; ship-time verifier Audit (status: shipped only after /spec:ship's dispatch) | research·proposal-grade content → if it needs those, it needed the full flow (upgrade in place) | 1–2 lines per entry field |
-| retrospect.md | Archive-stage audit (written by /spec:archive only): divergences found ("docs say A, code does B"), verify Evidence lines, unfinished/deferred items, force/abandon reason | restating the solution → point back to proposal/design | ≤40 lines |
+| retrospect.md | Archive-stage audit (written by /spec:archive only): divergences found ("docs say A, code does B"), verify Evidence lines, unfinished/deferred items, lesson routing (which mined candidates were applied / declined / suggested), force/abandon reason | restating the solution → point back to proposal/design ｜ the lesson text itself → lives in the edited skill / rules file | ≤40 lines |
+| project skills / rules files (OUTSIDE spec/: the project's skill directories, root or touched-directory CLAUDE.md / AGENTS.md) | Recurring-lesson edits written only by /spec:archive step 3, and only the candidates the user selected: a rule, a failure example, or a stale statement corrected — in the file's own voice | facts and rulings → knowledge base ｜ mechanical checks → a /spec:fix entry (archive writes no project source) ｜ plugin-cache or user-global skills → never (they reach beyond this project) | ≤6 lines per applied lesson |
 | knowledge base (project-level: knowledge.md index + knowledge/ subdocs — format → references/knowledge-spec.md) | Durable cross-change facts and rulings, routed by kind into domain subdocs / long-form docs; the index holds ONLY `- [kind/domain] file — hook` lines | anything change-specific → stays in that change's artifacts ｜ flat fact lines → subdocs, never the index ｜ a fact proven wrong is **replaced** (correction noted), never left contradicting | index one line per subdoc; facts one line each |
 
 **The soft budget governs "narrative/argument" only, not "contracts":** `## Interfaces` / `## Data Model` contracts are as precise as they need to be and **do not count toward the budget** — an imprecise contract is the real failure to specify. The exact line counts for design and rules like "split the change if the contract is too large" live in `references/design-spec.md` § Section Constraints (those numbers are authoritative) — **this matrix sets the principle only and does not restate them**.
@@ -112,7 +118,7 @@ Escalated decisions — pinned FIRST, never buried. Irreversible-class calls the
 provisionally (data migration / schema / public API / new dependency / destructive op /
 user-visible product semantics). They stand by default: silence + /spec:apply = consent;
 overturn any with one line of reply. Omit the whole section when there are none.
-  E1. <decision> | basis: <evidence or default used> | if wrong: <blast radius + undo path>
+  E1. (DEC-N) <decision> | basis: <evidence or default used> | if wrong: <blast radius + undo path>
 
 Changes — the explanation layer for the decision-maker. proposal.md stays compressed for
 the executor; this block is where it gets explained. NEVER paste proposal lines verbatim.
@@ -167,6 +173,8 @@ user-override in the ledger. Absorbing every point unexamined is sycophancy towa
 
 `/spec:revise` uses the same structure, with the title changed to `=== Proposal revised (<section>) ===` and a note that "the old APPROVED marker has been removed".
 
+**Persisted copy**: propose writes the complete block verbatim to `spec/changes/<name>/gate.md` (overwrite) BEFORE emitting it — nothing may follow the gate in the message — and `/spec:revise` replaces only the numbered Changes item it rewrites (keeping its number; a new decision takes the next number), keeping every other item. gate.md is what the proposal view renders the Changes layer from; escalated and auto decisions are rendered from their research.md DEC lines, so their DEC-N stays the stable ID across emissions.
+
 The `<!-- APPROVED: YYYY-MM-DD HH:mm -->` marker is **appended automatically by `/spec:apply` before it runs** (treating the user's deliberate invocation as the act of approval) — propose / revise **do not append it** (see proposal-spec.md).
 
 The `check-gate.sh` hook checks the prerequisites before `/spec:apply` runs (proposal.md exists with all four sections + an unambiguous target: the current pointer or the single active change). It deliberately does **not** require the marker — apply appends the marker after the hook fires (requiring it there would deadlock the flow); the marker is enforced at archive time by `check-archive.sh`.
@@ -220,6 +228,18 @@ Close the report in **statement mode**: the default direction plus one "overrida
 5. **Circular proof is not evidence**: an assertion that recomputes its expected value with the same algorithm as the code under test is always green and proves nothing — expected values come from the specification or an independent computation, so the test can actually fail
 6. **Mocks live at seams only**: a mock isolates an external dependency at an agreed boundary; mocking internal collaborators, testing private methods, or verifying through a side channel hollows the test out — and a mocked run is always reported as "logic verified, live path not run", never as end-to-end passing
 
+### Independent audit — executor rule + no-proposal contract (single source; /spec:ship and /spec:verify diff mode reference it)
+
+The author never audits its own work — that is the requirement, not "always dispatch a subagent". Change-mode `/spec:verify` and apply's closing round always dispatch spec-verifier (the implementing conversation is the author by definition). Where an audit may run inline — `/spec:ship`, `/spec:verify` diff mode — pick the cheapest executor that is still independent:
+- **this conversation wrote NONE of the audited changes** → it IS a fresh reader: audit directly, no subagent (a dispatch would cold-read everything for zero independence gain);
+- **it wrote any part of them, or cannot tell** → dispatch ONE spec-verifier (or suggest running from a fresh session, which is cheaper) — "cannot tell" counts as authored, because a self-audit mistaken for an independent one is the exact blind spot this rule exists to remove.
+
+The audit contract when no proposal anchors it, whoever executes it:
+- **the claim list comes from the record**: F-N entries (ship) or the intent lines (diff mode); the scope is the accumulated diff across the listed files — per-claim diff attribution is not expected (successive uncommitted edits to one file are indistinguishable);
+- **re-run the key commands** — self-reported success is a claim (Iron Law); run the charter machine pass (ast-grep rule pack; `not run` declared gracefully when absent);
+- behavioral additions beyond the claims = findings;
+- **no claim list at all** (diff mode with no intent source) → Completeness is `not assessed — no intent source`, stated in the record; Correctness, regression, Reuse and the charter pass still run — the diff is never its own spec (Anti-Cheating #5).
+
 ### Expression charter (binds every user-facing output — gate text, question options, adjudication items, hook block messages)
 
 The reader is the person shipping the requirement, not a developer parsing a spec. Five rules:
@@ -232,7 +252,7 @@ The reader is the person shipping the requirement, not a developer parsing a spe
 
 ### Knowledge is the fact cache
 
-The knowledge base (`spec/knowledge.md` index + `spec/knowledge/` subdocs — format → references/knowledge-spec.md) is the project's cache of verified facts. **Consult it before paying scan cost** — the seams: research maps the status quo, spec-dev maps call chains, fix locates, the verifier judges findings, the critique panel refutes proposals. Two-step read everywhere: scan the index (tens of lines), open only relevant subdocs. **A recorded fact with evidence+date is trusted until contradicted** — "double-checking" an already-verified fact by re-scanning is the most expensive token habit this flow has; found a contradiction → correct the record, never leave both standing.
+The knowledge base (`spec/knowledge.md` index + `spec/knowledge/` subdocs — format → references/knowledge-spec.md) is the project's cache of verified facts. **Consult it before paying scan cost** — the seams: research maps the status quo, spec-dev maps call chains, fix locates, the verifier judges findings, the critique panel refutes proposals. Two-step read everywhere: scan the index (tens of lines), open only relevant subdocs. **A recorded fact with evidence+date is trusted until contradicted** (except: a fact carrying `| suspect:` is re-checked before you rely on it — its evidence anchor is gone) — "double-checking" an already-verified fact by re-scanning is the most expensive token habit this flow has; found a contradiction → correct the record, never leave both standing.
 
 ### Session & prefix-cache economics
 
@@ -267,9 +287,9 @@ Suggestion: <change scope / switch tools / contact the task owner / abandon>
 
 | Hook script | Trigger command | Effect |
 |---|---|---|
-| `hooks/check-tbd.sh` | before `/spec:propose` | refuses to run if research.md still contains `[TBD]`, points to `/spec:ask` |
-| `hooks/check-gate.sh` | before `/spec:apply` | refuses to run if prerequisites are missing: no/incomplete proposal.md (four sections) or ≠1 active change. Deliberately does NOT require the APPROVED marker — apply appends it after the hook fires; `check-archive.sh` enforces it |
-| `hooks/check-archive.sh` | before `/spec:archive` | refuses to run if the change bypassed the flow (proposal without APPROVED / unchecked tasks / no proposal); deliberate override: say `force` (archive as-is, reason recorded in retrospect.md) or `abandoned` (drop the direction) |
+| `hooks/check-tbd.sh` | before `/spec:propose` | refuses to run if research.md still has `[TBD-N]` items inside `## Open [TBD]` (tokens elsewhere are provenance citations, not counted), points to `/spec:ask` |
+| `hooks/check-gate.sh` | before `/spec:apply` | refuses to run if prerequisites are missing: no/incomplete proposal.md (four sections) or an ambiguous target (>1 active change and no current pointer selecting one). Deliberately does NOT require the APPROVED marker — apply appends it after the hook fires; `check-archive.sh` enforces it |
+| `hooks/check-archive.sh` | before `/spec:archive` / `/spec:ship` | refuses to run if the targeted change bypassed the flow (proposal without APPROVED / unchecked tasks / no proposal; light tiers audited by their own record); target = the change named in the prompt, else the current pointer, else the single active one — none selected among several → let through; `/spec:ship` gets a precondition-only check (a batch with ≥1 entry); deliberate override: say `force` (archive as-is, reason recorded in retrospect.md) or `abandoned` (drop the direction) |
 | `hooks/check-verify-reminder.sh` | Stop event (Claude ends its turn) | **reminder, not gate**: active change has an APPROVED proposal but no verify.md ledger → exit 2 nudges Claude to run the closing verification (or state explicitly why it's pausing, then stop); `stop_hook_active` guards loops — at most one nudge per stop |
 | `hooks/loop-driver.sh` | Stop event, when exactly one `running` loop.md exists | **driver, not gate**: re-injects the next /spec:loop round (stdout `{"decision":"block","reason":...}` — the Stop-event JSON contract, probe-verified, NOT the gates' exit-2 contract) until acceptance is met or a fuse blows (round cap / no-progress / refusal-to-retrospect / corrupt ledger — four distinct notices); deliberately ignores `stop_hook_active`, bounded by ledger state instead |
 
@@ -297,5 +317,5 @@ Read on demand only when writing a concrete technical decision, to avoid polluti
 ## Interaction with the global protocol
 
 - **Language**: proposal / research prose follows your working language; **section headers are ALWAYS the English canonical forms** (`## Why / ## What / ## How / ## Risk` — never translated, e.g. ❌ `## 为什么（Why）`). A global "write in Chinese" protocol applies to prose only — hooks and `/spec:revise` target headers by their English names, and translated headers break that targeting
-- **Subagent delegation**: WebSearch goes to `@researcher`, cross-file search to `@code-explorer`
+- **Subagent delegation**: WebSearch goes to `@researcher`, cross-file search to `@code-explorer`. Neither ships with sdd — when the session's agent roster lacks one, dispatch the general-purpose agent with the role described inline in the brief ("web-research specialist: survey practices, cite URLs, no fabrication" / "read-only code explorer: locate definitions and call sites, report paths + lines"), because an unresolvable agent name fails the dispatch and silently drops the research step
 - **Concurrency**: independent operations are dispatched at once

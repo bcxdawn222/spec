@@ -6,7 +6,7 @@
 
 让大改动可控可回滚——调研、拷问、提案、**HARD GATE 硬门**、实施、独立验收、归档。每步可重入、可硬约束、可派单。
 
-[![Version](https://img.shields.io/badge/version-0.5.3-blue.svg)](https://github.com/bcxdawn222/spec)
+[![Version](https://img.shields.io/badge/version-0.11.1-blue.svg)](https://github.com/bcxdawn222/spec)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 **一套工作流，三个宿主。** · [English](README.md)
@@ -15,6 +15,18 @@
 
 ---
 
+## 当前版本与宿主范围
+
+Claude Code 和 Codex CLI 已同步 [kamioj/spec-workflow 0.11.1](https://github.com/kamioj/spec-workflow/commit/568585ed3e8d5fa356eac51756d3aa65035d0438)，提供 18 个命令。Cursor 端采用本仓库独立维护的 12 命令适配，功能范围见其使用说明。
+
+- 新增阶段网页视图，支持调研、问询、架构设计、方案和验收记录的标准或高级排版。
+- 高级视图支持架构流程图、任务依赖图，以及可选择并复制回复的问询页和方案页。
+- 新增知识库整理与无活动 spec 时的 diff 验证，并改进 Windows 钩子启动及 CRLF 文档兼容性。
+
+升级后的 Codex 项目会话可运行 `$spec-view all advanced zh`，Claude Code 可运行 `/spec:view all advanced zh`。文档更新后重新运行视图命令刷新页面，交互页面的回复文字需要粘回会话完成确认。
+
+开发检查通过 `python scripts/check.py` 或 `sh scripts/check.sh` 执行，检查日志写入仓库内的 `logs` 目录。
+
 ## 为什么
 
 AI 辅助 spec-driven development 的两种既有范式：
@@ -22,7 +34,7 @@ AI 辅助 spec-driven development 的两种既有范式：
 - **快流**：直接动手、hook 兜底——容易跑偏
 - **重流**：先 spec 后做但僵化——OpenSpec 4 命令、superpowers 9 步
 
-**spec-workflow 走第三路**：保留"先想清楚再动手"的价值，把流程拆成 **12 个独立命令**——每阶段可重入、可中断、可单点重做。3 个硬门 hook 让"该停的地方真停下来"，外加 Stop 驱动器让 `/spec:loop` 自主轮次成为硬机制。
+**spec-workflow 走第三路**：保留"先想清楚再动手"的价值，Claude Code 和 Codex CLI 把流程拆成 **18 个独立命令**——每阶段可重入、可中断、可单点重做。3 个硬门 hook 让"该停的地方真停下来"，外加 Stop 驱动器让 `/spec:loop` 自主轮次成为硬机制。
 
 ### 差异化对比
 
@@ -30,7 +42,7 @@ AI 辅助 spec-driven development 的两种既有范式：
 |---|---|---|---|
 | 阶段控制 | 显式 HARD GATE + hook 拦截 | fluid 软警告 | 9 步硬流程 |
 | 待决点 [TBD] | 允许 + hook 强制清空 | 可滞留 | 严禁 |
-| 命令粒度 | 12 个独立命令 | 4 命令一把梭 | skill 单流程 |
+| 命令粒度 | 18 个独立命令（Claude Code / Codex CLI） | 4 命令一把梭 | skill 单流程 |
 | 中途重入 | 每阶段独立调用 | continue 推进 | 重头来 |
 | 反作弊 | 命令 + agent 双层 + opt-in | 无 | 隐含 |
 
@@ -59,7 +71,7 @@ AI 辅助 spec-driven development 的两种既有范式：
 
 ```bash
 claude plugin marketplace add bcxdawn222/spec
-claude plugin install spec@spec
+claude plugin install spec@spec-workflow
 ```
 
 会话里输入：
@@ -72,7 +84,7 @@ claude plugin install spec@spec
 
 ```bash
 codex plugin marketplace add bcxdawn222/spec
-codex plugin install spec@spec
+codex plugin add spec@spec-workflow
 ```
 
 会话里输入：
@@ -96,7 +108,7 @@ Copy-Item sdd-cursor\references -Recurse -Force
 
 ---
 
-## 12 个命令
+## Claude Code / Codex CLI 的 18 个命令
 
 | 命令 | 职责 |
 |---|---|
@@ -112,6 +124,12 @@ Copy-Item sdd-cursor\references -Recurse -Force
 | `/spec:status` | 查看当前阶段 |
 | `/spec:chat` | 讨论模式，不动文档 |
 | `/spec:archive` | 硬门归档 + 复盘 + knowledge.md |
+| `/spec:fix <任务>` | 小改动按日期记录到修复批次 |
+| `/spec:ship [日期]` | 检查并完成一个修复批次 |
+| `/spec:stash` | 暂停当前变更 |
+| `/spec:resume [名称]` | 切换或恢复指定变更 |
+| `/spec:view [阶段] [层级] [语言] [目录]` | 生成阶段产物的 HTML 网页视图 |
+| `/spec:knowledge [范围]` | 整理项目知识库并选择需要沉淀的经验 |
 
 ---
 

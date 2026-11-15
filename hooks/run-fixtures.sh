@@ -114,6 +114,54 @@ P=$(mkproj tbd-prov); mkdir -p "$P/spec/changes/c"
 printf '# R\n\n## Practices\n- pattern X (drove [TBD-1])\n\n## Constraints\n- limit Y, see [TBD-2]\n\n## Open [TBD]\n(none)\n\n## Decided\n- [DEC-1] chosen | source [TBD-1] | reason\n' > "$P/spec/changes/c/research.md"
 run_case tbd-provenance-ref-allows check-tbd allow "$P" "$(json '/spec:propose')"
 
+# /spec:ask persists crafted questions as indented sub-lines under their [TBD-N]; sub-lines carry no
+# token, so a live entry still blocks once and leftover sub-lines alone never block
+P=$(mkproj tbd-sublines-only); mkdir -p "$P/spec/changes/c"
+printf '# R
+
+## Open [TBD]
+  - Q: stale scenario stem
+  - 1: fast / extra dependency
+
+## Decided
+- [DEC-1] chosen | source [TBD-1] | reason
+' > "$P/spec/changes/c/research.md"
+run_case tbd-open-only-sublines-allows check-tbd allow "$P" "$(json '/spec:propose')"
+
+P=$(mkproj tbd-live-sublines); mkdir -p "$P/spec/changes/c"
+printf '# R
+
+## Open [TBD]
+- [TBD-1] pick one | candidates: a / b | select: one
+  - Q: when a user saves twice, which copy wins?
+  - 1: simple / stale reads
+  - 2: consistent / extra hop
+
+## Decided
+(none)
+' > "$P/spec/changes/c/research.md"
+run_case tbd-live-with-sublines-blocks check-tbd block "$P" "$(json '/spec:propose')"
+
+# /spec:verify diff-mode records live under spec/archive/ — they must never count as an active change:
+# with one real active change present, check-tbd tells the placements apart (under archive → still a
+# single active change → allow; misplaced under spec/changes/ → two active, no pointer → block)
+P=$(mkproj verify-record-only); mkdir -p "$P/spec/archive/2026-11-05-verify-login-fix"
+mkdir -p "$P/spec/changes/c"; printf '# R
+
+## Open [TBD]
+(none)
+
+## Decided
+(none)
+' > "$P/spec/changes/c/research.md"
+printf -- '---
+mode: diff
+round: 1
+conclusion: pass
+---
+' > "$P/spec/archive/2026-11-05-verify-login-fix/verify.md"
+run_case verify-record-only-gates-unchanged check-tbd allow "$P" "$(json '/spec:propose')"
+
 # ---- check-archive ----
 P=$(mkproj arch-unapproved); mkdir -p "$P/spec/changes/c"
 printf '%s' "$FULL_PROPOSAL" > "$P/spec/changes/c/proposal.md"
@@ -667,6 +715,22 @@ run_case reminder-pointer-binds-nudge check-verify-reminder block "$P" "$(json_s
 printf 'draft\n' > "$P/spec/changes/.current"
 run_case reminder-pointer-other-allows check-verify-reminder allow "$P" "$(json_stop false)"
 
+# archive with multiple active changes: explicit name > pointer > let through (never block
+# on multiplicity itself); a selected target is audited like a sole active change
+P=$(mkproj ptr-arch); mkdir -p "$P/spec/changes/appr" "$P/spec/changes/draft"
+printf '%s\n<!-- APPROVED: 2026-09-10 12:00 -->\n' "$FULL_PROPOSAL" > "$P/spec/changes/appr/proposal.md"
+printf '%s' "$FULL_PROPOSAL" > "$P/spec/changes/draft/proposal.md"
+run_case archive-multi-no-pointer-allows check-archive allow "$P" "$(json '/spec:archive')"
+printf 'ghost\n' > "$P/spec/changes/.current"
+run_case archive-pointer-dangling-multi-allows check-archive allow "$P" "$(json '/spec:archive')"
+printf 'draft\n' > "$P/spec/changes/.current"
+run_case archive-pointer-unapproved-blocks check-archive block "$P" "$(json '/spec:archive')"
+run_case archive-pointer-force-overrides check-archive allow "$P" "$(json '/spec:archive force')"
+run_case archive-named-target-beats-pointer check-archive allow "$P" "$(json '/spec:archive appr')"
+printf 'appr\n' > "$P/spec/changes/.current"
+run_case archive-pointer-approved-allows check-archive allow "$P" "$(json '/spec:archive')"
+run_case archive-named-unapproved-blocks check-archive block "$P" "$(json '/spec:archive draft')"
+
 # ---- Claude-specific extras ----
 
 # V-2: non-ASCII project path — gate must still bite (env route is encoding-immune)
@@ -693,6 +757,28 @@ if [ -n "$out" ] && [ "$code" -eq 0 ]; then
 else
     FAIL=$((FAIL+1)); echo "FAIL  wrong-contract-canary  a codex-contract gate was not distinguishable (out='$out' code=$code)"
 fi
+
+# ---- CRLF artifacts (core.autocrlf checkouts on Windows): gates must read them like LF ----
+crlf() { awk '{ printf "%s\r\n", $0 }'; }
+P=$(mkproj crlf-gate); mkdir -p "$P/spec/changes/my-change"
+printf '%s' "$FULL_PROPOSAL" | crlf > "$P/spec/changes/my-change/proposal.md"
+run_case crlf-gate-happy-path      check-gate allow "$P" "$(json '/spec:apply')"
+P=$(mkproj crlf-tbd); mkdir -p "$P/spec/changes/c"
+printf '# R\n\n## Open [TBD]\n- [TBD-1] pick one\n\n## Decided\n(none)\n' | crlf > "$P/spec/changes/c/research.md"
+run_case crlf-tbd-open-blocks      check-tbd block "$P" "$(json '/spec:propose')"
+P=$(mkproj crlf-arch-loop); mkdir -p "$P/spec/changes/g"
+printf '%s' "$LOOP_RUNNING" | sed -e 's/^status: running$/status: done/' \
+    -e 's/^- \[ \] A-1 thing (verify: x)$/- [x] A-1 thing (verify: x)/' | crlf > "$P/spec/changes/g/loop.md"
+run_case crlf-archive-loop-done-allows check-archive allow "$P" "$(json '/spec:archive')"
+P=$(mkproj crlf-arch-quick); mkdir -p "$P/spec/changes/h"
+printf '%s' "$QUICK_DONE" | crlf > "$P/spec/changes/h/quick.md"
+run_case crlf-archive-quick-done-allows check-archive allow "$P" "$(json '/spec:archive')"
+P=$(mkproj crlf-arch-fix); mkdir -p "$P/spec/changes/fixes"
+printf '%s' "$FIX_SHIPPED" | crlf > "$P/spec/changes/fixes/fix.md"
+run_case crlf-archive-fix-shipped-allows check-archive allow "$P" "$(json '/spec:archive')"
+P=$(mkproj crlf-loop); mkdir -p "$P/spec/changes/g"
+printf '%s' "$LOOP_RUNNING" | crlf > "$P/spec/changes/g/loop.md"
+run_driver_case crlf-loop-continue-reinjects reinject "$P" - "$(json_stop false)"
 
 # ---- scenario-name sync against the codex fixture set (V-3/V-6 drift guard) ----
 CODEX_RUNNER="$HOOKS_DIR/../codex/hooks/run-fixtures.sh"
@@ -723,6 +809,88 @@ if [ -f "$CODEX_RUNNER" ]; then
             FAIL=$((FAIL+1)); echo "FAIL  scenario-sync-rev:$n  Claude case has no codex mirror"
         fi
     done
+fi
+
+# ---- loop reinject-template sync (repo checkout only) ----
+# The driver's runtime prompts live in four places: hooks/loop-driver.sh, its codex twins
+# (loop-driver.sh + loop-driver.ps1), and core/commands/loop.md §Round protocol / §Final
+# acceptance. Part 1: the three drivers carry the same literals verbatim -- every
+# reinject/allow_notice argument, in call order, after normalizing the host differences
+# (sigil, ps1 variable names). Part 2: core paraphrases the drivers, so it can't be
+# diffed; each load-bearing clause in the anchor lists below must appear in both the core
+# section and the driver literals. Rewording a clause in one place fails here until every
+# place (and this list) is swept. Not caught: a NEW obligation added to one place only.
+CORE_LOOP="$HOOKS_DIR/../core/commands/loop.md"
+CODEX_DRIVER_SH="$HOOKS_DIR/../codex/hooks/loop-driver.sh"
+CODEX_DRIVER_PS1="$HOOKS_DIR/../codex/hooks/loop-driver.ps1"
+
+loop_literals() { # $1=driver file -> normalized literals, one per line, in call order
+    tr -d '\r' < "$1" \
+      | grep -E '^[[:space:]]*(reinject|allow_notice|Reinject|AllowNotice)[[:space:]]' \
+      | grep -oE "'[^']*'|\"[^\"]*\"" \
+      | sed -e 's/^.//' -e 's/.$//' \
+            -e 's/\$spec-\([a-z]*\)/\/spec:\1/g' \
+            -e 's/\$maxRounds/$MAX_ROUNDS/g' \
+            -e 's/\$next\([^A-Za-z]\)/$NEXT\1/g' -e 's/\$next$/$NEXT/'
+}
+core_section() { # $1=heading prefix -> that ## section of core loop.md, heading excluded
+    tr -d '\r' < "$CORE_LOOP" | awk -v h="$1" 'index($0, h) == 1 {f=1; next} /^## /{f=0} f'
+}
+# Case-sensitive on purpose: Git for Windows' grep aborts (SIGABRT) on -iF, which would read
+# as "anchor missing" -- so anchors are chosen with identical case in core and drivers.
+check_anchors() { # $1=label $2=core section file; anchors on stdin, one per line
+    while IFS= read -r a; do
+        a=$(printf '%s' "$a" | tr -d '\r')   # a CRLF checkout puts \r on every heredoc line
+        [ -n "$a" ] || continue
+        miss=""
+        grep -qF -- "$a" "$2" || miss="$miss core/commands/loop.md"
+        grep -qF -- "$a" "$LIT_CLAUDE" || miss="$miss loop-drivers"
+        if [ -z "$miss" ]; then
+            PASS=$((PASS+1)); echo "PASS  loop-sync-anchor:$1: $a"
+        else
+            FAIL=$((FAIL+1)); echo "FAIL  loop-sync-anchor:$1: \"$a\" missing from:$miss"
+        fi
+    done
+}
+
+if [ -f "$CORE_LOOP" ] && [ -f "$CODEX_DRIVER_SH" ] && [ -f "$CODEX_DRIVER_PS1" ]; then
+    LIT_CLAUDE="$TMP_ROOT/lit.claude"
+    loop_literals "$HOOKS_DIR/loop-driver.sh" > "$LIT_CLAUDE"
+    loop_literals "$CODEX_DRIVER_SH" > "$TMP_ROOT/lit.codex-sh"
+    loop_literals "$CODEX_DRIVER_PS1" > "$TMP_ROOT/lit.codex-ps1"
+    if [ -s "$LIT_CLAUDE" ]; then
+        PASS=$((PASS+1)); echo "PASS  loop-sync-extract ($(wc -l < "$LIT_CLAUDE" | tr -d ' ') literals)"
+    else
+        FAIL=$((FAIL+1)); echo "FAIL  loop-sync-extract  no reinject/allow_notice literals found in hooks/loop-driver.sh"
+    fi
+    for twin in codex-sh codex-ps1; do
+        if diff "$LIT_CLAUDE" "$TMP_ROOT/lit.$twin" > "$TMP_ROOT/lit.diff"; then
+            PASS=$((PASS+1)); echo "PASS  loop-sync-verbatim:$twin"
+        else
+            FAIL=$((FAIL+1)); echo "FAIL  loop-sync-verbatim:$twin  driver literals differ from hooks/loop-driver.sh (< claude, > $twin)"
+            sed 's/^/      /' "$TMP_ROOT/lit.diff" | cut -c1-200 | head -6
+        fi
+    done
+    core_section '## Round protocol' > "$TMP_ROOT/core.round"
+    core_section '## Final acceptance' > "$TMP_ROOT/core.final"
+    check_anchors round "$TMP_ROOT/core.round" <<'EOF'
+ONE coherent increment
+the ledger and the codebase before assuming anything is unimplemented
+compile / tests / minimal repro
+subagent dispatch during rounds
+#### Retrospect
+status: paused
+EOF
+    check_anchors final "$TMP_ROOT/core.final" <<'EOF'
+spec-verifier
+re-verify EVERY Acceptance item against its
+ONLY independent audit
+so it is exhaustive
+uncheck
+status: done
+EOF
+else
+    echo "WARN: core/ or codex driver twins not found -- loop reinject-template sync skipped (repo checkout only)"
 fi
 
 echo "----"

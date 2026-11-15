@@ -2,7 +2,7 @@
 # Codex port of the /spec:archive gate: the change must not have bypassed the flow.
 # Trigger: UserPromptSubmit hook (Codex CLI).
 # Codex-specific contract (see SCHEMA.md, probe-verified on codex-cli 0.142.1):
-#   - stdin field is `prompt` (same field name as Claude Code — corrected 2026-07-15)
+#   - stdin field is `prompt` (same field name as Claude Code -- corrected 2026-07-15)
 #   - blocking = stdout {"decision":"block","reason":...} + exit 0 (exit 2 does NOT block on Codex)
 #   - invocation form is `$spec-archive` (Codex skills), not `/spec:archive`
 # Audits the single active change:
@@ -11,8 +11,11 @@
 #   - no proposal.md at all                          -> research-only change
 # Any finding -> block with the list, UNLESS the prompt also contains "force" or
 # "abandon(ed)" (deliberate override; $spec-archive records the reason in retrospect.md).
-# Unlike check-tbd/check-gate, this hook does NOT block on multiple active changes --
-# archiving is exactly how you get back down to one.
+# With multiple active changes the audit target is the change named in the invocation
+# ($spec-archive <name>), else the one the current pointer (spec/changes/.current) names --
+# audited exactly like a sole active change. Neither selects one -> let it through: unlike
+# check-tbd/check-gate, never block on multiplicity itself, archiving is exactly how you get
+# back down to one.
 # fail-open: internal errors exit 0 with no stdout.
 
 [Console]::InputEncoding = [System.Text.Encoding]::UTF8
@@ -20,7 +23,9 @@
 
 $ErrorActionPreference = 'Continue'
 
+$script:targetNote = ''
 function Block([string]$reason) {
+    if ($script:targetNote) { $reason = "$reason`n$($script:targetNote)" }
     @{ decision = 'block'; reason = $reason } | ConvertTo-Json -Compress | Write-Output
     exit 0
 }
@@ -67,7 +72,7 @@ try {
         }
         $entriesSeen = $false
         foreach ($fm in $batchFiles) {
-            $fixContent = Get-Content $fm -Raw -Encoding UTF8
+            $fixContent = (Get-Content $fm -Raw -Encoding UTF8) -replace "`r", ""
             if ([regex]::Matches($fixContent, '(?m)^## F-\d+').Count -gt 0) { $entriesSeen = $true; break }
         }
         if (-not $entriesSeen) {
@@ -88,17 +93,45 @@ try {
         Block 'SDD: no active change -- nothing to archive'
     }
 
-    # Multiple active changes: let it through; $spec-archive asks which one to archive
+    # Multiple active changes: an explicit name in the invocation wins, then the current
+    # pointer (the same pointer-first resolution check-tbd/check-gate use) -- otherwise a
+    # valid pointer at an unapproved change would sail through unaudited just because other
+    # changes coexist. The explicit name ranks first so "$spec-archive other" is audited as
+    # other, not as the pointer's target. Dangling/invalid pointer or unknown name =
+    # silently ignored (fail-open).
+    $changes = @($changes)
+    if ($changes.Count -gt 1) {
+        $total = $changes.Count
+        $arg = if ($userPrompt -match '\$spec-archive[ \t]+([A-Za-z0-9._-]+)') { $Matches[1] } else { '' }
+        $cur = ''
+        $currentFile = Join-Path $changesDir '.current'
+        if (Test-Path $currentFile) {
+            $cur = "$(Get-Content $currentFile -TotalCount 1 -ErrorAction SilentlyContinue)".Trim()
+        }
+        foreach ($want in @($arg, $cur)) {
+            if (-not $want) { continue }
+            $hit = @($changes | Where-Object { $_.Name -eq $want })
+            if ($hit.Count -eq 1) {
+                $changes = $hit
+                if ($want -ne $arg) {
+                    $script:targetNote = "(target picked by spec/changes/.current among $total active changes -- archiving a different one? name it: `$spec-archive <name>)"
+                }
+                break
+            }
+        }
+    }
+
+    # Still ambiguous: let it through; $spec-archive asks which one to archive
     if ($changes.Count -gt 1) { exit 0 }
 
     $change = $changes[0]
 
-    # $spec-loop change: no proposal.md by design — the ledger is the flow record. Trust
+    # $spec-loop change: no proposal.md by design -- the ledger is the flow record. Trust
     # model (0.5.1): status: done is written by the final-acceptance turn, the same class
     # of flow-moment anchor as the APPROVED marker.
     $loopPath = Join-Path $change.FullName 'loop.md'
     if (Test-Path $loopPath) {
-        $loop = Get-Content $loopPath -Raw -Encoding UTF8
+        $loop = (Get-Content $loopPath -Raw -Encoding UTF8) -replace "`r", ""
         $lstatus = if ($loop -match "(?m)^status:\s*([^`r`n]*)$") { ($Matches[1] -replace '#.*$', '').Trim() } else { '' }
         $lacc = [regex]::Match($loop, '(?ms)^## Acceptance\s*?$(.*?)(?=^## |\z)').Groups[1].Value
         $lunchecked = [regex]::Matches($lacc, '(?m)^- \[ \]').Count
@@ -119,7 +152,7 @@ try {
     $quickPath = Join-Path $change.FullName 'quick.md'
     $proposalProbe = Join-Path $change.FullName 'proposal.md'
     if ((Test-Path $quickPath) -and -not (Test-Path $proposalProbe)) {
-        $quick = Get-Content $quickPath -Raw -Encoding UTF8
+        $quick = (Get-Content $quickPath -Raw -Encoding UTF8) -replace "`r", ""
         $qstatus = if ($quick -match "(?m)^status:\s*([^`r`n]*)$") { ($Matches[1] -replace '#.*$', '').Trim() } else { '' }
         $qev = [regex]::Match($quick, '(?ms)^## Evidence\s*?$(.*?)(?=^## |\z)').Groups[1].Value
         if ($qstatus -eq 'done' -and $qev.Trim().Length -gt 0) { exit 0 }
@@ -144,7 +177,7 @@ try {
     if (($batchFixFiles.Count -gt 0) -and -not (Test-Path $proposalProbe2)) {
         $allShipped = $true
         foreach ($fm in $batchFixFiles) {
-            $fix = Get-Content $fm -Raw -Encoding UTF8
+            $fix = (Get-Content $fm -Raw -Encoding UTF8) -replace "`r", ""
             $fstatus = if ($fix -match "(?m)^status:\s*([^`r`n]*)$") { ($Matches[1] -replace '#.*$', '').Trim() } else { '' }
             $fau = [regex]::Match($fix, '(?ms)^## Audit\s*?$(.*?)(?=^## |\z)').Groups[1].Value
             if (-not ($fstatus -eq 'shipped' -and $fau.Trim().Length -gt 0)) { $allShipped = $false }
@@ -162,7 +195,7 @@ try {
 
     $proposalPath = Join-Path $change.FullName 'proposal.md'
     if (Test-Path $proposalPath) {
-        $content = Get-Content $proposalPath -Raw -Encoding UTF8
+        $content = (Get-Content $proposalPath -Raw -Encoding UTF8) -replace "`r", ""
         # Same marker contract as the Claude-side hooks: only the <!-- APPROVED: --> comment form counts
         if ($content -notmatch '(?i)<!--\s*APPROVED\s*[:>]') {
             $findings += 'proposal.md has no APPROVED marker -- the HARD GATE was bypassed (code written without $spec-apply?)'
@@ -173,7 +206,7 @@ try {
 
     $tasksPath = Join-Path $change.FullName 'tasks.md'
     if (Test-Path $tasksPath) {
-        $tasksContent = Get-Content $tasksPath -Raw -Encoding UTF8
+        $tasksContent = (Get-Content $tasksPath -Raw -Encoding UTF8) -replace "`r", ""
         $unchecked = [regex]::Matches($tasksContent, '(?m)^\s*- \[ \]').Count
         if ($unchecked -gt 0) {
             $findings += "tasks.md has $unchecked unchecked item(s) -- archiving unfinished work"
